@@ -26,9 +26,10 @@ async function start(t, { delivers = true } = {}) {
   const notifier = {
     vapidPublicKey: 'test-public-key',
     emailStatus: (settings) => ({ configured: true, from: 'from@example.com', to: settings.emailTo || 'env@example.com' }),
+    emailDelivery: async () => ({ status: 'sent' }),
     async send(message) {
       sent.push(message.title);
-      return { email: { sent: delivers }, push: { sent: 0, failed: 0 } };
+      return { email: { sent: delivers }, push: { sent: 0, failed: 0, skipped: 'No devices are subscribed' } };
     },
   };
   const resolve = (result) => (typeof result === 'function' ? result() : result);
@@ -208,13 +209,17 @@ test('SSL and registration use their own thresholds', async (t) => {
   assert.equal(body.domain.registration.status, 'soon');
 });
 
-test('an alert that reaches nobody is retried on the next check', async (t) => {
+test('an alert that fails to send is kept, and re-checking does not send it again', async (t) => {
   const { api, results, inDays, sent } = await start(t, { delivers: false });
   results.ssl = { ...results.ssl, expiresAt: inDays(5.5) };
   const { body } = await api('POST', '/api/domains', { host: 'example.com' });
   await api('POST', `/api/domains/${body.domain.id}/check`);
-  assert.equal(sent.length, 2);
-  assert.deepEqual((await api('GET', `/api/domains/${body.domain.id}`)).body.alerts, []);
+  assert.equal(sent.length, 1);
+  const { alerts } = (await api('GET', `/api/domains/${body.domain.id}`)).body;
+  assert.equal(alerts.length, 1);
+  assert.deepEqual(alerts[0].channels, []);
+  assert.equal(alerts[0].deliveries.email.status, 'failed');
+  assert.equal(alerts[0].deliveries.push.status, 'skipped');
 });
 
 test('overlapping checks of one domain share a single run', async (t) => {
@@ -237,8 +242,9 @@ test('settings have defaults, can be updated in part, and are validated', async 
       emailTo: 'env@example.com',
       pushEnabled: true,
     },
-    email: { configured: true, from: 'from@example.com' },
-    push: { subscriptions: 0 },
+    email: { configured: true, from: 'from@example.com', last: null },
+    push: { subscriptions: 0, last: null },
+    deliveryProblems: [],
   });
 
   const updated = await api('PUT', '/api/settings', { sslThresholds: [3, 60, 3], emailTo: ' lachie@example.com ', pushEnabled: false });
@@ -277,7 +283,7 @@ test('test alert reports what each channel did', async (t) => {
   const { api, sent } = await start(t);
   const { status, body } = await api('POST', '/api/alerts/test');
   assert.equal(status, 200);
-  assert.deepEqual(body, { email: { sent: true }, push: { sent: 0, failed: 0 } });
+  assert.deepEqual(body, { email: { sent: true }, push: { sent: 0, failed: 0, skipped: 'No devices are subscribed' } });
   assert.deepEqual(sent, ['Test alert from SSL Tracker']);
 });
 
@@ -322,7 +328,7 @@ test('notifier sends email through Resend and push through web-push', async (t) 
   const message = { title: 'T', body: 'B', text: 'text', html: '<p>html</p>', tag: 'ssl:a.com', url: '/' };
 
   const outcome = await notifier.send(message, store.getSettings());
-  assert.deepEqual(outcome, { email: { sent: true }, push: { sent: 1, failed: 1 } });
+  assert.deepEqual(outcome, { email: { sent: true, id: '1' }, push: { sent: 1, failed: 1, error: 'Push service replied 410' } });
   assert.deepEqual(requests, [
     {
       url: 'https://api.resend.com/emails',
