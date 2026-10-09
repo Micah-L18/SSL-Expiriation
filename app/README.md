@@ -8,7 +8,55 @@ Single user, no login. Run it on your own machine or server.
 
 ## Setup
 
-Needs Node.js 22.13 or newer (it uses Node's built-in SQLite).
+There are two ways to run it. Docker is the recommended one for a machine that
+stays on: it pins the Node version, restarts the app if it stops and watches
+its health.
+
+### Docker quick start
+
+Needs Docker with Compose 2.24 or newer.
+
+```sh
+cd app
+cp .env.example .env          # then fill in the email settings
+docker compose up -d --build
+```
+
+Open http://127.0.0.1:3000. The port is published on this machine only; to
+open the app from a phone see [HTTPS with Tailscale](#https-with-tailscale).
+
+- `docker compose ps` shows `healthy` while the scheduler is running (it asks
+  `/api/health` every minute).
+- `docker compose logs -f` shows the log. A warning that the app is listening
+  on `0.0.0.0` is expected here: that is inside the container, and Compose only
+  publishes the port on `127.0.0.1`.
+- `HOST`, `PORT` and `DATA_DIR` in `.env` are ignored under Docker; the
+  Compose file sets them. To use another port, change the left-hand number in
+  `ports:` in `compose.yml`.
+- Data lives in the `data` volume (`/data` in the container), which survives
+  rebuilds and `docker compose down`. `docker compose down -v` deletes it.
+- The container restarts by itself after a crash or a reboot
+  (`restart: unless-stopped`), provided Docker itself starts on boot.
+
+To copy the backups out of the volume:
+
+```sh
+docker compose cp tracker:/data/backups ./backups
+```
+
+To restore one, stop the app, copy the snapshot in as the database and start
+again (see [Backups and restore](#backups-and-restore) for what the files are):
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps tracker sh -c 'rm -f /data/tracker.db-wal /data/tracker.db-shm && cp /data/backups/tracker-YYYY-MM-DD.db /data/tracker.db'
+docker compose up -d
+```
+
+### Without Docker
+
+Needs Node.js 22.13 or newer in the 22 line, or Node.js 24 (it uses Node's
+built-in SQLite; other versions are not tested).
 
 ```sh
 cd app
@@ -20,7 +68,8 @@ npm start
 Open http://127.0.0.1:3000.
 
 Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
-[Backups and restore](#backups-and-restore).
+[Backups and restore](#backups-and-restore). To keep it running, see
+[Start on boot](#start-on-boot).
 
 ### Configuration (`.env`)
 
@@ -38,12 +87,47 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 | `CHECK_INTERVAL_HOURS` | `24` | How often each domain is re-checked. |
 | `HEARTBEAT_URL` | none | Fetched after every completed scheduler run. See [Knowing the tracker is alive](#knowing-the-tracker-is-alive). |
 
-### HTTPS (needed for push notifications)
+### HTTPS with Tailscale
 
 Browsers only allow push notifications and app install on HTTPS (or on
-`localhost`). To use them from a phone or another computer, put a reverse proxy
-with a certificate in front and keep `HOST=127.0.0.1`. With
-[Caddy](https://caddyserver.com) that is two lines:
+`localhost`), and the app has no login. [Tailscale](https://tailscale.com)
+solves both: only your own devices can reach the app, and it gets a real
+certificate that renews itself. It is free for personal use.
+
+1. Install Tailscale on the machine running the tracker and on your phone, and
+   sign both in to the same account.
+2. In the Tailscale admin console, under DNS, turn on MagicDNS and HTTPS
+   certificates.
+3. On the tracker machine, with the app running on `127.0.0.1:3000`:
+
+   ```sh
+   tailscale serve --bg 3000
+   ```
+
+   It prints the address, like `https://machine.your-tailnet.ts.net`.
+   `tailscale serve status` shows it again, and it survives reboots.
+4. Put that address in `.env` and restart the app (`docker compose up -d`, or
+   restart `npm start`):
+
+   ```
+   PUBLIC_URL=https://machine.your-tailnet.ts.net
+   ```
+
+   The links in alerts then point at it, and the app accepts requests for it.
+   Without this step the app answers `403` at that address.
+5. Open the address on your phone with Tailscale switched on, add the app to
+   the Home Screen and enable push in the alert settings.
+
+Keep `HOST=127.0.0.1` (or the Docker default): Tailscale reaches the app
+through the loopback address. Alerts still arrive when Tailscale is switched
+off, because they are delivered by email and by Apple's and Google's push
+services; Tailscale is only needed to open the app. Do not use
+`tailscale funnel`: that publishes the app to the whole internet.
+
+#### Another reverse proxy
+
+Any proxy with a certificate works the same way: keep `HOST=127.0.0.1`, set
+`PUBLIC_URL` to the HTTPS address. With [Caddy](https://caddyserver.com):
 
 ```
 tracker.example.com {
@@ -52,8 +136,8 @@ tracker.example.com {
 ```
 
 There is no login, so anyone who can reach the address can see and change your
-domains. Keep it on a private network or VPN (Tailscale works well), or add
-authentication at the proxy (`basic_auth` in Caddy).
+domains. Keep it on a private network, or add authentication at the proxy
+(`basic_auth` in Caddy).
 
 ### Which addresses the app answers to
 
@@ -147,6 +231,11 @@ On a new machine: install the app, create `data/`, and do steps 3 to 5.
 
 ### Upgrading
 
+```sh
+git pull
+docker compose up -d --build     # or: npm install && restart npm start
+```
+
 The database carries a schema version. When a new version of the app starts
 on an older database it first writes a snapshot named
 `data/backups/tracker-<timestamp>-schema-v<N>.db` (the database exactly as the
@@ -158,6 +247,9 @@ Check history older than 400 days is deleted daily. The latest successful
 check of each domain is always kept, however old.
 
 ### Start on boot
+
+Under Docker there is nothing to do beyond making Docker start on boot. Without
+Docker:
 
 Linux (systemd), as `/etc/systemd/system/ssl-tracker.service`:
 
@@ -335,3 +427,6 @@ Push messages arrive in the service worker as JSON:
 ```sh
 npm test
 ```
+
+GitHub Actions runs the same on Node 22 and 24 for every pull request
+(`.github/workflows/test.yml`).

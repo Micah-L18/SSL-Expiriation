@@ -1,0 +1,26 @@
+# Run from this folder: docker compose up -d --build
+services:
+  tracker:
+    build: .
+    image: ssl-tracker
+    restart: unless-stopped
+    # Settings come from .env, the same file `npm start` reads.
+    env_file:
+      - path: .env
+        required: false
+    # These three describe the container, not your setup, so they win over .env.
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATA_DIR: /data
+    # Reachable from this machine only. Put Tailscale or a reverse proxy in
+    # front to open it from other devices; do not publish it on 0.0.0.0.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - data:/data
+
+volumes:
+  # The database, push keys and daily snapshots. Survives rebuilds and
+  # `docker compose down`; only `docker compose down -v` deletes it.
+  data:

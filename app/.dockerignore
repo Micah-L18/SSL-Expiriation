@@ -1,0 +1,9 @@
+# Secrets and data never go into the image.
+.env
+.env.*
+data/
+node_modules/
+test/
+*.md
+Dockerfile
+compose.yml
