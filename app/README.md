@@ -8,55 +8,35 @@ Single user, one password. Run it on your own machine or server.
 
 ## Setup
 
-There are two ways to run it. Docker is the recommended one for a machine that
-stays on: it pins the Node version, restarts the app if it stops and watches
-its health.
+There are two ways to run it.
 
-### Docker quick start
+### On a server, with Docker
 
-Needs Docker with Compose 2.24 or newer.
+This is the recommended way: open to the internet over HTTPS, behind a login.
+`compose.yml` runs the app together with [Caddy](https://caddyserver.com),
+which gets and renews the certificate. **[DEPLOY.md](DEPLOY.md) has every
+step**: firewall, DNS, the password, first run, updating, backups and outside
+monitoring. In short, on a server whose DNS name already points at it:
 
 ```sh
 cd app
-cp .env.example .env          # then fill in the email settings
+cp .env.example .env          # set DOMAIN and the email settings
 docker compose build
 docker compose run --rm --no-deps tracker node scripts/hash-password.js
 # paste the AUTH_PASSWORD_HASH line it prints into .env, then:
 docker compose up -d
 ```
 
-The password is required under Docker: the container listens on every
-interface, and the app will not start that way without one. See
-[Login](#login).
+Needs Docker with Compose 2.24 or newer, and ports 80 and 443 open.
 
-Open http://127.0.0.1:3000. The port is published on this machine only; to
-open the app from a phone see [HTTPS with Tailscale](#https-with-tailscale).
-
+- The app's own port is not published; only Caddy can reach it.
+- `HOST`, `PORT`, `DATA_DIR`, `PUBLIC_URL` and `TRUST_PROXY` in `.env` are
+  ignored under Docker; `compose.yml` sets them.
 - `docker compose ps` shows `healthy` while the scheduler is running (it asks
   `/api/health` every minute).
-- `docker compose logs -f` shows the log.
-- `HOST`, `PORT` and `DATA_DIR` in `.env` are ignored under Docker; the
-  Compose file sets them. To use another port, change the left-hand number in
-  `ports:` in `compose.yml`.
 - Data lives in the `data` volume (`/data` in the container), which survives
   rebuilds and `docker compose down`. `docker compose down -v` deletes it.
-- The container restarts by itself after a crash or a reboot
-  (`restart: unless-stopped`), provided Docker itself starts on boot.
-
-To copy the backups out of the volume:
-
-```sh
-docker compose cp tracker:/data/backups ./backups
-```
-
-To restore one, stop the app, copy the snapshot in as the database and start
-again (see [Backups and restore](#backups-and-restore) for what the files are):
-
-```sh
-docker compose stop
-docker compose run --rm --no-deps tracker sh -c 'rm -f /data/tracker.db-wal /data/tracker.db-shm && cp /data/backups/tracker-YYYY-MM-DD.db /data/tracker.db'
-docker compose up -d
-```
+- The containers restart by themselves after a crash or a reboot.
 
 ### Without Docker
 
@@ -96,6 +76,8 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 
 ### HTTPS with Tailscale
 
+For running the app without Docker on a machine at home or in the office.
+
 Browsers only allow push notifications and app install on HTTPS (or on
 `localhost`). [Tailscale](https://tailscale.com) gives the app a real
 certificate that renews itself, and only your own devices can reach it. It is free for personal use.
@@ -112,8 +94,7 @@ certificate that renews itself, and only your own devices can reach it. It is fr
 
    It prints the address, like `https://machine.your-tailnet.ts.net`.
    `tailscale serve status` shows it again, and it survives reboots.
-4. Put that address in `.env` and restart the app (`docker compose up -d`, or
-   restart `npm start`):
+4. Put that address in `.env` and restart the app:
 
    ```
    PUBLIC_URL=https://machine.your-tailnet.ts.net
@@ -124,7 +105,7 @@ certificate that renews itself, and only your own devices can reach it. It is fr
 5. Open the address on your phone with Tailscale switched on, add the app to
    the Home Screen and enable push in the alert settings.
 
-Keep `HOST=127.0.0.1` (or the Docker default): Tailscale reaches the app
+Keep `HOST=127.0.0.1`: Tailscale reaches the app
 through the loopback address. Alerts still arrive when Tailscale is switched
 off, because they are delivered by email and by Apple's and Google's push
 services; Tailscale is only needed to open the app. Do not use
@@ -201,6 +182,8 @@ These checks stand beside the login, not in place of it.
 ### Knowing the tracker is alive
 
 A tracker that has stopped cannot tell you so. Two things cover that.
+[DEPLOY.md](DEPLOY.md#8-uptimerobot-knowing-the-tracker-itself-is-alive) sets
+both up with UptimeRobot.
 
 **Heartbeat.** Set `HEARTBEAT_URL` and the app sends one GET request to it
 after every completed scheduler run, which is once an hour. Create a check at
@@ -266,6 +249,9 @@ To restore:
    the hour, and alerts already sent before the snapshot are not sent again.
 
 On a new machine: install the app, create `data/`, and do steps 3 to 5.
+
+Under Docker the files are in the `data` volume and the commands differ; see
+[DEPLOY.md](DEPLOY.md#10-backups-and-restoring).
 
 ### Upgrading
 
