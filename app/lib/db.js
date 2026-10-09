@@ -10,8 +10,11 @@ const DEFAULT_SETTINGS = {
   pushEnabled: true,
 };
 
-const SCHEMA = `
-  PRAGMA foreign_keys = ON;
+// One entry per schema version, applied in order and tracked in PRAGMA
+// user_version. Never edit a released entry; add a new one instead.
+const MIGRATIONS = [
+  // 1: the original schema. Databases from before versioning already have it.
+  `
   CREATE TABLE IF NOT EXISTS domains (
     id INTEGER PRIMARY KEY,
     host TEXT NOT NULL UNIQUE,
@@ -48,7 +51,47 @@ const SCHEMA = `
     subscription TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
-`;
+`,
+  // 2: alerts get a type and a de-duplication key, so there can be alerts
+  // that are not about a threshold (failing checks, untrusted certificates).
+  `
+  CREATE TABLE alerts_new (
+    id INTEGER PRIMARY KEY,
+    domain_id INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    type TEXT NOT NULL,
+    key TEXT NOT NULL,
+    threshold INTEGER,
+    expires_at TEXT,
+    sent_at TEXT NOT NULL,
+    channels TEXT NOT NULL DEFAULT '',
+    message TEXT,
+    UNIQUE (domain_id, kind, type, key)
+  );
+  INSERT INTO alerts_new (id, domain_id, kind, type, key, threshold, expires_at, sent_at, channels)
+    SELECT id, domain_id, kind, 'expiry', expires_at || ':' || threshold, threshold, expires_at, sent_at, channels FROM alerts;
+  DROP TABLE alerts;
+  ALTER TABLE alerts_new RENAME TO alerts;
+  `,
+];
+
+function schemaVersion(db) {
+  return db.prepare('PRAGMA user_version').get().user_version;
+}
+
+function migrate(db) {
+  for (let version = schemaVersion(db); version < MIGRATIONS.length; version++) {
+    db.exec('BEGIN');
+    try {
+      db.exec(MIGRATIONS[version]);
+      db.exec(`PRAGMA user_version = ${version + 1}`);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+}
 
 function toDomain(row) {
   return row && { id: row.id, host: row.host, registrable: row.registrable, createdAt: row.created_at };
@@ -66,11 +109,24 @@ function toCheck(row) {
   };
 }
 
+function toAlert(row) {
+  return row && {
+    kind: row.kind,
+    type: row.type,
+    title: row.message ? JSON.parse(row.message).title : null,
+    threshold: row.threshold,
+    expiresAt: row.expires_at,
+    sentAt: row.sent_at,
+    channels: row.channels ? row.channels.split(',') : [],
+  };
+}
+
 // file is a path, or ':memory:' for tests.
 function openStore(file) {
   const db = new DatabaseSync(file);
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
-  db.exec(SCHEMA);
+  db.exec('PRAGMA foreign_keys = ON;');
+  migrate(db);
   const iso = () => new Date().toISOString();
 
   return {
@@ -97,40 +153,44 @@ function openStore(file) {
       toCheck(
         db.prepare('SELECT * FROM checks WHERE domain_id = ? AND kind = ? AND ok = 1 ORDER BY id DESC LIMIT 1').get(domainId, kind)
       ),
-    lastCheckedAt: (domainId) =>
-      db.prepare('SELECT MAX(checked_at) AS at FROM checks WHERE domain_id = ?').get(domainId).at,
+    // The run of failed checks since the last good one. afterId is that good
+    // check's id (0 when there has never been one) and names the run.
+    failureStreak(domainId, kind) {
+      const { afterId } = db
+        .prepare('SELECT COALESCE(MAX(id), 0) AS afterId FROM checks WHERE domain_id = ? AND kind = ? AND ok = 1')
+        .get(domainId, kind);
+      const { count, since } = db
+        .prepare('SELECT COUNT(*) AS count, MIN(checked_at) AS since FROM checks WHERE domain_id = ? AND kind = ? AND id > ?')
+        .get(domainId, kind, afterId);
+      return { afterId, count, since };
+    },
     history: (domainId, limit = 50) =>
       db.prepare('SELECT * FROM checks WHERE domain_id = ? ORDER BY id DESC LIMIT ?').all(domainId, limit).map(toCheck),
 
     sentThresholds: (domainId, kind, expiresAt) =>
       db
-        .prepare('SELECT threshold FROM alerts WHERE domain_id = ? AND kind = ? AND expires_at = ?')
+        .prepare("SELECT threshold FROM alerts WHERE domain_id = ? AND kind = ? AND type = 'expiry' AND expires_at = ?")
         .all(domainId, kind, expiresAt)
         .map((r) => r.threshold),
-    // Returns false when this alert was already claimed, which is what prevents duplicates.
-    claimAlert: (domainId, kind, threshold, expiresAt) =>
-      db
-        .prepare('INSERT OR IGNORE INTO alerts (domain_id, kind, threshold, expires_at, sent_at) VALUES (?, ?, ?, ?, ?)')
-        .run(domainId, kind, threshold, expiresAt, iso()).changes > 0,
-    confirmAlert: (domainId, kind, threshold, expiresAt, channels) =>
-      db
-        .prepare('UPDATE alerts SET channels = ? WHERE domain_id = ? AND kind = ? AND threshold = ? AND expires_at = ?')
-        .run(channels.join(','), domainId, kind, threshold, expiresAt),
-    releaseAlert: (domainId, kind, threshold, expiresAt) =>
-      db
-        .prepare('DELETE FROM alerts WHERE domain_id = ? AND kind = ? AND threshold = ? AND expires_at = ?')
-        .run(domainId, kind, threshold, expiresAt),
+    getAlert: (domainId, kind, type, key) =>
+      toAlert(db.prepare('SELECT * FROM alerts WHERE domain_id = ? AND kind = ? AND type = ? AND key = ?').get(domainId, kind, type, key)),
+    // Returns the new alert's id, or null when this alert was already claimed,
+    // which is what prevents duplicates.
+    claimAlert({ domainId, kind, type, key, threshold = null, expiresAt = null, message, at = iso() }) {
+      const { changes, lastInsertRowid } = db
+        .prepare(
+          'INSERT OR IGNORE INTO alerts (domain_id, kind, type, key, threshold, expires_at, sent_at, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(domainId, kind, type, key, threshold, expiresAt, at, JSON.stringify(message));
+      return changes > 0 ? Number(lastInsertRowid) : null;
+    },
+    confirmAlert: (id, channels) => db.prepare('UPDATE alerts SET channels = ? WHERE id = ?').run(channels.join(','), id),
+    releaseAlert: (id) => db.prepare('DELETE FROM alerts WHERE id = ?').run(id),
     listAlerts: (domainId, limit = 50) =>
       db
         .prepare("SELECT * FROM alerts WHERE domain_id = ? AND channels != '' ORDER BY id DESC LIMIT ?")
         .all(domainId, limit)
-        .map((r) => ({
-          kind: r.kind,
-          threshold: r.threshold,
-          expiresAt: r.expires_at,
-          sentAt: r.sent_at,
-          channels: r.channels.split(','),
-        })),
+        .map(toAlert),
 
     getSettings() {
       const settings = { ...DEFAULT_SETTINGS };
@@ -161,4 +221,4 @@ function openStore(file) {
   };
 }
 
-module.exports = { openStore, DEFAULT_SETTINGS };
+module.exports = { openStore, DEFAULT_SETTINGS, SCHEMA_VERSION: MIGRATIONS.length };

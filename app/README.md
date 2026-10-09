@@ -87,13 +87,23 @@ on any OS, or a launchd agent on macOS.
   registries (for example `.de`) do not publish expiry dates; those show as
   `unsupported` and never alert.
 - **Schedule**: each domain is checked when added and then every
-  `CHECK_INTERVAL_HOURS`. The app looks hourly for domains that are due, so a
-  restart or a sleeping machine does not skip a day.
-- **Alerts**: one alert per threshold crossed, per expiry date. With thresholds
-  30/14/7/1 you get at most four reminders plus one "has expired" notice. A
-  domain added with 5 days left gets only the 7-day alert. Renewing (a new
-  expiry date) starts a fresh cycle. If an alert reaches no one (email not
-  configured, no devices subscribed) it is retried at the next check.
+  `CHECK_INTERVAL_HOURS`. The app looks hourly for checks that are due, so a
+  restart or a sleeping machine does not skip a day. A check that fails does
+  not count as done: it is tried again on each of the next three hourly looks,
+  and only then waits for its normal daily turn.
+- **Expiry alerts**: one alert per threshold crossed, per expiry date. With
+  thresholds 30/14/7/1 you get at most four reminders plus one "has expired"
+  notice, which then repeats weekly for as long as it stays expired. A domain
+  added with 5 days left gets only the 7-day alert. Renewing (a new expiry
+  date) starts a fresh cycle.
+- **Failing checks**: when a check has failed for three days running you get
+  one alert naming the host and the error, and one more when it works again.
+  Shorter outages stay quiet.
+- **Untrusted certificates**: a certificate browsers would reject (self-signed,
+  wrong hostname, broken chain) sends one alert per certificate.
+- Removing every threshold for SSL or for registration turns off all alerts of
+  that kind. If an alert reaches no one (email not configured, no devices
+  subscribed) it is retried at the next check.
 
 ## API
 
@@ -135,7 +145,8 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
     "issuer": "Let's Encrypt",
     "subject": "example.com",
     "trusted": true,              // false for self-signed, wrong host, expired
-    "trustError": null
+    "trustError": null,
+    "fingerprint": "AB:CD:..."    // SHA-256 of the certificate
   },
   "registration": {               // null until first checked
     "status": "healthy",          // healthy | soon | expired | failed | unsupported
@@ -152,8 +163,15 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
 { "id": 7, "kind": "ssl", "checkedAt": "...", "ok": true, "expiresAt": "...", "error": null, "issuer": "..." }
 
 // Alert
-{ "kind": "registration", "threshold": 14, "expiresAt": "...", "sentAt": "...", "channels": ["email", "push"] }
-// threshold 0 is the "has expired" alert
+{
+  "kind": "registration",         // ssl | registration
+  "type": "expiry",               // expiry | reminder (weekly, while expired) | failing | recovered | untrusted
+  "title": "Domain registration for example.com expires in 14 days",
+  "threshold": 14,                // expiry and reminder only; 0 is the "has expired" alert
+  "expiresAt": "...",             // null for failing and recovered
+  "sentAt": "...",
+  "channels": ["email", "push"]
+}
 
 // Settings
 {
