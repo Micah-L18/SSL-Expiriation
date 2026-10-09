@@ -1,0 +1,9 @@
+{
+  "name": "Certwatch SSL Tracker",
+  "short_name": "Certwatch",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f5",
+  "theme_color": "#f5f7f4",
+  "icons": [{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

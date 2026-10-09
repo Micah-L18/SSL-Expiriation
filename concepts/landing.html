@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7f4">
+  <meta name="description" content="A private, self-hosted domain tracker for Lachie. See SSL certificate and domain registration expiry dates, with email and mobile push reminders.">
+  <title>Certwatch — Know what expires next</title>
+  <link rel="stylesheet" href="landing.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="landing.html" aria-label="Certwatch home"><span class="brand-mark" aria-hidden="true">✓</span><span>certwatch</span></a>
+    <a class="header-link" href="index.html">Open tracker <span aria-hidden="true">↗</span></a>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">YOUR PRIVATE DOMAIN WATCHLIST</p>
+        <h1 id="hero-title">Know what expires <em>next.</em></h1>
+        <p class="hero-intro">One calm view of SSL certificate and domain registration dates, with reminders before something needs your attention.</p>
+        <div class="hero-actions"><a class="button primary" href="index.html">Explore the tracker <span aria-hidden="true">→</span></a><span class="quiet-note">Made for Lachie · self-hosted · no login</span></div>
+      </div>
+      <aside class="status-card" aria-label="Example expiry overview">
+        <div class="status-top"><div><span class="card-kicker">SAMPLE DATA · UP NEXT</span><strong class="site-name">wildwoodcoffee.com</strong></div><span class="status-badge">12 days</span></div>
+        <div class="expiry-line"><span class="expiry-icon ssl-icon" aria-hidden="true">⌑</span><div><b>Domain registration</b><small>Oct 20 · GoDaddy</small></div><span class="urgency amber">Soon</span></div>
+        <div class="expiry-line"><span class="expiry-icon cert-icon" aria-hidden="true">⌁</span><div><b>SSL certificate</b><small>Nov 6 · DigiCert</small></div><span class="urgency green">29 days</span></div>
+        <div class="card-foot">Example expiry dates</div>
+      </aside>
+    </section>
+
+    <section class="how section" aria-labelledby="how-title">
+      <div class="section-heading"><p class="eyebrow">A SMALL, USEFUL LOOP</p><h2 id="how-title">From domain to heads-up.</h2></div>
+      <ol class="steps">
+        <li><span class="step-no">01</span><div><h3>Add a domain</h3><p>Enter a public website domain to start monitoring it.</p></div></li>
+        <li><span class="step-no">02</span><div><h3>Check two dates</h3><p>See the SSL certificate expiry and domain registration expiry via RDAP.</p></div></li>
+        <li><span class="step-no">03</span><div><h3>Get a reminder</h3><p>Choose lead times and receive email or mobile push notifications.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="features section" aria-labelledby="features-title">
+      <div class="section-heading"><p class="eyebrow">THE IMPORTANT DETAILS, TOGETHER</p><h2 id="features-title">Less date hunting. More time to renew.</h2></div>
+      <div class="feature-grid">
+        <article class="feature"><span class="feature-mark green-mark" aria-hidden="true">⌑</span><h3>Certificate expiry</h3><p>Track public-site SSL certificate dates and see which ones are getting close.</p></article>
+        <article class="feature"><span class="feature-mark amber-mark" aria-hidden="true">◷</span><h3>Registration expiry</h3><p>Keep domain registration renewal dates beside certificate dates, using RDAP lookups.</p></article>
+        <article class="feature"><span class="feature-mark blue-mark" aria-hidden="true">↗</span><h3>Reminders that fit</h3><p>Set alert lead times for email through Resend and mobile push on this device.</p></article>
+      </div>
+    </section>
+
+    <section class="faq section" aria-labelledby="faq-title">
+      <div class="section-heading"><p class="eyebrow">GOOD TO KNOW</p><h2 id="faq-title">A couple of practical details.</h2></div>
+      <div class="faq-list">
+        <details><summary>Why does push need HTTPS?</summary><p>Browsers require a secure HTTPS connection for push notifications. Open the self-hosted tracker over HTTPS to enable push; email reminders are a separate option.</p></details>
+        <details><summary>Where does the tracker run?</summary><p>It is intended to run on Lachie’s own server or machine. It is a personal tool with no login flow.</p></details>
+        <details><summary>What can it monitor?</summary><p>Public websites’ SSL certificates and domain registration expiry dates via RDAP.</p></details>
+      </div>
+    </section>
+
+    <section class="closing" aria-labelledby="closing-title"><div><p class="eyebrow">READY WHEN YOU ARE</p><h2 id="closing-title">See your domains clearly.</h2><p>Open the tracker to explore the dashboard, alerts, and domain details.</p></div><a class="button primary" href="index.html">Open the tracker <span aria-hidden="true">→</span></a></section>
+  </main>
+  <footer><a class="brand footer-brand" href="landing.html"><span class="brand-mark" aria-hidden="true">✓</span><span>certwatch</span></a><p>A private expiry tracker for Lachie.</p></footer>
+</body>
+</html>

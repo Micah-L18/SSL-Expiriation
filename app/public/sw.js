@@ -1,0 +1,8 @@
+'use strict';
+const CACHE='certwatch-shell-v1';
+const SHELL=['/','/index.html','/style.css','/app.js','/manifest.webmanifest','/icon.svg'];
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
+self.addEventListener('fetch',event=>{const url=new URL(event.request.url);if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;event.respondWith(fetch(event.request).then(response=>{if(response.ok)caches.open(CACHE).then(cache=>cache.put(event.request,response.clone()));return response}).catch(()=>caches.match(event.request).then(cached=>cached||caches.match('/index.html'))))});
+self.addEventListener('push',event=>{let payload={title:'Certwatch alert',body:'A monitored expiry needs your attention.',url:'/'};try{payload={...payload,...event.data.json()}}catch{};event.waitUntil(self.registration.showNotification(payload.title,{body:payload.body,tag:payload.tag||'certwatch-alert',icon:'/icon.svg',badge:'/icon.svg',data:{url:payload.url||'/'}}))});
+self.addEventListener('notificationclick',event=>{event.notification.close();const target=new URL(event.notification.data?.url||'/',self.location.origin).href;event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(clients=>{const existing=clients.find(client=>client.url===target);return existing?existing.focus():self.clients.openWindow(target)}))});

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920,height=1080">
+<title>certwatch — expiry dates, in view</title>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script src="assets/music/audio-data.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+:root{--ink:#1f302a;--muted:#77827d;--line:#e7ebe7;--paper:#fff;--bg:#f6f8f5;--green:#338461;--green-dark:#2d6f4e;--green-soft:#eaf5ee;--amber:#b67824;--amber-soft:#fff4df;--red:#c34f4c;--red-soft:#fff0ee}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:'DM Sans',Arial,sans-serif}
+#root{position:relative;width:100%;height:100%;overflow:hidden;background:var(--bg)}
+.clip{position:absolute;inset:0;overflow:hidden}
+/* Brand continuity: the original certwatch checkmark and greens lead every scene. */
+.brand-mark{display:inline-grid;place-items:center;width:52px;height:52px;color:#fff;background:#438d69;border-radius:16px;font:800 31px Manrope,Arial,sans-serif;box-shadow:0 10px 26px #33846125}
+.wordmark{font:800 38px Manrope,Arial,sans-serif;letter-spacing:-1.8px;color:var(--ink)}
+.eyebrow{font-size:16px;line-height:1.2;letter-spacing:2.4px;text-transform:uppercase;color:#8c9b91;font-weight:700}
+/* Scene one */
+#hook{background:var(--bg)}
+.hook-wash{position:absolute;width:760px;height:760px;border-radius:50%;background:radial-gradient(circle,#e6f1e8 0%,#f6f8f5 68%);left:580px;top:120px;opacity:.9}
+.hook-rule{position:absolute;left:300px;right:300px;top:540px;height:1px;background:#dbe5dc}
+.slip{position:absolute;top:290px;width:420px;height:210px;border-radius:18px;background:#fff;border:1px solid #e4ebe5;box-shadow:0 24px 65px #27423012;padding:30px 34px}
+.slip.one{left:520px}.slip.two{right:520px}
+.slip .mini{font-size:14px;color:#89968e;letter-spacing:1.5px;text-transform:uppercase;font-weight:700}
+.slip strong{display:block;margin-top:17px;font:700 31px Manrope,Arial,sans-serif;letter-spacing:-.7px}
+.slip small{display:block;margin-top:10px;color:#708078;font-size:16px}
+.hook-title{position:absolute;left:0;right:0;top:650px;text-align:center;font:600 42px Manrope,Arial,sans-serif;letter-spacing:-1.3px}
+/* Product dashboard scene: rebuilt from current app/public/index.html + style.css; demo data only. */
+#dashboard-scene{background:#eff4ef}
+.scene-kicker{position:absolute;left:240px;top:60px;display:flex;align-items:center;gap:14px}
+.scene-kicker .brand-mark{width:36px;height:36px;border-radius:11px;font-size:22px}
+.scene-kicker b{font:800 22px Manrope,Arial,sans-serif;letter-spacing:-.6px}
+.demo-shell{position:absolute;left:240px;right:240px;top:136px;bottom:74px;border-radius:18px;background:#fff;border:1px solid #e3e9e3;box-shadow:0 28px 80px #22372d18;overflow:hidden;display:flex}
+.demo-side{width:220px;background:#fbfcfa;border-right:1px solid #e7ebe7;padding:30px 18px;display:flex;flex-direction:column;flex:none}
+.demo-brand{display:flex;align-items:center;gap:10px;font:800 17px Manrope,Arial,sans-serif;letter-spacing:-.5px}
+.demo-brand .brand-mark{width:29px;height:29px;border-radius:9px;font-size:17px;box-shadow:none}
+.demo-brand small{display:block;font:500 10px 'DM Sans',Arial,sans-serif;color:#96a09a;letter-spacing:.2px;margin-top:1px}
+.demo-nav{margin-top:44px;border-radius:9px;background:#edf4ef;padding:12px 13px;color:#2d6f4e;font-weight:600;font-size:13px}
+.demo-live{margin-top:auto;border-top:1px solid var(--line);padding:14px 4px 0;color:#718078;font-size:12px}
+.demo-live i{display:inline-block;width:7px;height:7px;background:#55a77a;border-radius:50%;margin-right:7px}
+.demo-main{padding:30px 36px 24px;flex:1;min-width:0}
+.demo-top{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:18px;color:#909b93;font-size:12px}
+.demo-avatar{width:29px;height:29px;display:grid;place-items:center;border-radius:50%;background:#eaf2ec;color:#397151;font-weight:700}
+.demo-heading{display:flex;justify-content:space-between;align-items:flex-end;margin:22px 0 18px}
+.demo-heading .eyebrow{font-size:9px;letter-spacing:1.4px;margin:0 0 5px}
+.demo-heading h2{font:700 25px Manrope,Arial,sans-serif;letter-spacing:-.7px;margin:0}
+.demo-heading p{margin:5px 0 0;color:#77827d;font-size:12px}
+.add-btn{background:#338461;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:700;font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+.stat{border:1px solid #e7ebe7;border-radius:10px;padding:13px 15px;background:#fff}
+.stat label{display:flex;gap:7px;align-items:center;font-size:11px;color:#66736b;font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}.green{background:#4c9b6f}.amber{background:#dfa746}.red{background:#c95d55}
+.stat strong{display:block;margin-top:7px;font:700 25px Manrope,Arial,sans-serif}.stat small{font-size:10px;color:#8b9690}
+.list-title{display:flex;justify-content:space-between;align-items:end;margin-bottom:11px}
+.list-title h3{font:700 14px Manrope,Arial,sans-serif;margin:0}.list-title h3 span{font:600 10px 'DM Sans',Arial,sans-serif;background:#eff3ef;border-radius:12px;padding:3px 7px;margin-left:5px;color:#748078}
+.list-title p{font-size:10px;color:#8b9690;margin:4px 0 0}
+.filter{border:1px solid #e1e8e2;border-radius:7px;padding:7px 10px;color:#68746d;font-size:10px}
+.domain-table{border:1px solid #e8ece8;border-radius:9px;overflow:hidden}
+.row{height:56px;display:grid;grid-template-columns:1.5fr .9fr .9fr 120px;align-items:center;padding:0 16px;border-bottom:1px solid #edf0ed;font-size:11px}
+.row:last-child{border-bottom:0}.row.head{height:32px;background:#fafbfa;color:#939e97;font-size:9px;letter-spacing:.8px;text-transform:uppercase;font-weight:700}
+.domain{font-weight:700;color:#314239}.subdomain{display:block;font-size:9px;color:#99a39d;font-weight:400;margin-top:3px}
+.expiry-val{font-weight:600}.muted{display:block;color:#8b9690;font-size:9px;margin-top:3px}
+.pill{display:inline-flex;align-items:center;justify-content:center;border-radius:20px;padding:5px 9px;font-size:9px;font-weight:700;white-space:nowrap}
+.pill.green{background:#eaf5ee;color:#347653}.pill.amber{background:#fff4df;color:#9c691f}.pill.red{background:#fff0ee;color:#b54d48}
+.dashboard-caption{position:absolute;left:240px;bottom:26px;font-size:15px;font-weight:600;color:#42554a}
+.dashboard-caption b{color:#338461;font-weight:700}
+/* Settings & notification scene */
+#alerts-scene{background:#f6f8f5}
+.alerts-title{position:absolute;left:210px;top:88px}
+.alerts-title .eyebrow{margin:0 0 12px}
+.alerts-title h2{margin:0;font:700 44px Manrope,Arial,sans-serif;letter-spacing:-1.5px}
+.alerts-title p{margin:10px 0 0;font-size:18px;color:#758279}
+.settings-panel{position:absolute;left:210px;top:245px;width:785px;height:610px;padding:27px 30px;background:#fff;border:1px solid #e5eae5;border-radius:16px;box-shadow:0 18px 50px #20392b0c}
+.settings-head{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.settings-head .icon{width:39px;height:39px;display:grid;place-items:center;background:#eef5ef;border-radius:11px;color:#438d69;font-size:20px}
+.settings-head h3{margin:0;font:700 17px Manrope,Arial,sans-serif}.settings-head p{margin:4px 0 0;color:#818d85;font-size:12px}
+.lead-list{display:flex;gap:9px;margin:20px 0 30px}
+.lead{border:1px solid #dfe8e0;border-radius:8px;padding:9px 13px;color:#397151;background:#f5faf6;font-size:12px;font-weight:600}
+.setting-line{display:flex;align-items:center;gap:14px;border-top:1px solid #edf0ed;padding:20px 0}
+.setting-line .icon{width:38px;height:38px;display:grid;place-items:center;background:#f2f6f3;border-radius:10px;color:#5a8068;font-size:19px}
+.setting-line h4{margin:0;font:700 15px Manrope,Arial,sans-serif}.setting-line p{margin:4px 0 0;color:#7c8880;font-size:11px}
+.switch{margin-left:auto;width:39px;height:22px;border-radius:20px;background:#438d69;position:relative}.switch:after{content:'';position:absolute;width:16px;height:16px;right:3px;top:3px;border-radius:50%;background:#fff}
+.when-configured{font-size:11px;color:#89968e;margin-left:50px;margin-top:-12px}
+.notification{position:absolute;left:1060px;top:305px;width:620px;height:480px;background:#fff;border:1px solid #e4e9e4;border-radius:18px;box-shadow:0 26px 70px #20392b17;overflow:hidden}
+.note-top{height:62px;background:#fbfcfa;border-bottom:1px solid #ebefeb;display:flex;align-items:center;padding:0 24px;gap:10px;font-size:13px;font-weight:700;color:#46554b}
+.note-top .brand-mark{width:27px;height:27px;border-radius:8px;font-size:16px;box-shadow:none}.note-top small{font-weight:400;color:#98a29c;margin-left:6px}
+.note-body{padding:33px 34px}.note-tag{font-size:10px;letter-spacing:1.4px;color:#438d69;font-weight:700}
+.note-body h3{margin:16px 0 12px;font:700 26px Manrope,Arial,sans-serif;letter-spacing:-.6px}.note-body p{font-size:15px;line-height:1.55;color:#647168;margin:0}.note-domain{font-weight:700;color:#304339}
+.note-details{margin-top:26px;padding-top:19px;border-top:1px solid #ebefeb;display:grid;grid-template-columns:1fr 1fr;gap:12px}.note-details small{font-size:9px;color:#9aa49e;letter-spacing:1px}.note-details b{display:block;font-size:13px;margin-top:5px;color:#425349}
+.note-button{margin-top:25px;display:inline-block;background:#edf5ef;color:#32714f;border-radius:7px;padding:10px 15px;font-size:12px;font-weight:700}
+/* Closing brand */
+#close-scene{background:var(--bg);display:grid;place-items:center}
+.close-wash{position:absolute;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,#eaf4eb 0%,#f6f8f5 72%)}
+.close-lockup{position:relative;display:grid;justify-items:center;gap:22px}
+.close-lockup .brand-mark{width:94px;height:94px;border-radius:27px;font-size:57px}
+.close-lockup .wordmark{font-size:64px;letter-spacing:-3px}
+.close-line{font-size:20px;color:#708078;letter-spacing:.1px}
+.close-foot{position:absolute;bottom:42px;color:#a0aaa3;font-size:12px;letter-spacing:.5px}
+/* Contrast-safe type: preserve the brand mark and primary action while lifting UI labels to AA legibility. */
+#root *:not(.brand-mark):not(.add-btn){color:#34443a!important}
+#root .brand-mark{color:#fff;background:#2d6f4e}
+#root .add-btn{color:#fff;background:#2d6f4e}
+#root .pill.green{color:#285f42!important}
+#root .pill.amber{color:#765116!important}
+#root .pill.red{color:#8d302c!important}
+#root .demo-live i{background:#338461}
+</style>
+</head>
+<body>
+<div data-hf-id="hf-ik99" id="root" data-composition-id="certwatch-brag" data-start="0" data-width="1920" data-height="1080" data-duration="20">
+<section data-hf-id="hf-129c" id="hook" class="clip" data-start="0" data-duration="3">
+ <div data-hf-id="hf-ckvz" class="hook-wash"></div><div data-hf-id="hf-e4xk" class="hook-rule"></div>
+ <div data-hf-id="hf-hzzi" class="slip one"><span data-hf-id="hf-hyob" class="mini">Expiry to watch</span><strong data-hf-id="hf-9owb">SSL certificate</strong><small data-hf-id="hf-d9k8">One date on the calendar</small></div>
+ <div data-hf-id="hf-xwe8" class="slip two"><span data-hf-id="hf-68lu" class="mini">And another</span><strong data-hf-id="hf-5vjn">Domain registration</strong><small data-hf-id="hf-bj0j">One more date to remember</small></div>
+ <div data-hf-id="hf-u79x" class="hook-title">Two dates. Easy to forget.</div>
+</section>
+<section data-hf-id="hf-x9c8" id="dashboard-scene" class="clip" data-start="3" data-duration="6">
+ <div data-hf-id="hf-5o1m" class="scene-kicker"><span data-hf-id="hf-c33b" class="brand-mark">✓</span><div data-hf-id="hf-yeow"><b data-hf-id="hf-td9e">certwatch</b><div data-hf-id="hf-i033" style="color:#89968e;font-size:12px;margin-top:3px">SSL monitoring</div></div></div>
+ <div data-hf-id="hf-3j9c" class="demo-shell">
+  <aside data-hf-id="hf-wari" class="demo-side"><div data-hf-id="hf-l8ch" class="demo-brand"><span data-hf-id="hf-phzb" class="brand-mark">✓</span><span data-hf-id="hf-crhy">certwatch<small data-hf-id="hf-1cwo">SSL monitoring</small></span></div><div data-hf-id="hf-515a" class="demo-nav">▦ &#160;Overview</div><div data-hf-id="hf-4gnw" class="demo-live"><i data-hf-id="hf-wt6k"></i>Live monitoring<small data-hf-id="hf-fpox" style="display:block;margin:8px 0 0 14px;color:#9aa49e">Checks run daily</small></div></aside>
+  <main data-hf-id="hf-c3v1" class="demo-main">
+   <div data-hf-id="hf-443n" class="demo-top"><span data-hf-id="hf-vrfr">Workspace &#160;/&#160; <b data-hf-id="hf-o360" style="color:#526057">Overview</b></span><span data-hf-id="hf-ku0f" class="demo-avatar">C</span></div>
+   <div data-hf-id="hf-jbug" class="demo-heading"><div data-hf-id="hf-y7yw"><p data-hf-id="hf-fcom" class="eyebrow">THURSDAY, OCTOBER 8</p><h2 data-hf-id="hf-ldzt">Your domains</h2><p data-hf-id="hf-k2vp">A clear view of certificate and registration renewals.</p></div><button data-hf-id="hf-qwwu" class="add-btn">＋ &#160;Add a domain</button></div>
+   <div data-hf-id="hf-rhep" class="stats"><div data-hf-id="hf-xa0m" class="stat"><label data-hf-id="hf-760a"><i data-hf-id="hf-tsa8" class="dot green"></i>Healthy</label><strong data-hf-id="hf-df2y">5</strong><small data-hf-id="hf-mruo">All good</small></div><div data-hf-id="hf-tx7e" class="stat"><label data-hf-id="hf-s2r8"><i data-hf-id="hf-20is" class="dot amber"></i>Expiring soon</label><strong data-hf-id="hf-fsx4">2</strong><small data-hf-id="hf-trkt">Within 30 days</small></div><div data-hf-id="hf-ubif" class="stat"><label data-hf-id="hf-xi9g"><i data-hf-id="hf-rkwg" class="dot red"></i>Needs attention</label><strong data-hf-id="hf-em01">1</strong><small data-hf-id="hf-ig7r">Expired or check failed</small></div></div>
+   <div data-hf-id="hf-7jid" class="list-title"><div data-hf-id="hf-x11t"><h3 data-hf-id="hf-rkmy">Monitored domains <span data-hf-id="hf-ezx7">8</span></h3><p data-hf-id="hf-zoeq">Sorted by whichever expiry comes first</p></div><span data-hf-id="hf-xynq" class="filter">☷ &#160; All domains &#160;⌄</span></div>
+   <div data-hf-id="hf-s887" class="domain-table">
+    <div data-hf-id="hf-w11e" class="row head"><span data-hf-id="hf-fr6l">DOMAIN</span><span data-hf-id="hf-z0my">SSL CERTIFICATE</span><span data-hf-id="hf-611e">DOMAIN REGISTRATION</span><span data-hf-id="hf-rkyr">STATUS</span></div>
+    <div data-hf-id="hf-thy4" class="row"><span data-hf-id="hf-46nw" class="domain">northstar.example<span data-hf-id="hf-nrzy" class="subdomain">HTTPS certificate trusted</span></span><span data-hf-id="hf-zad5" class="expiry-val">Nov 2, 2026<span data-hf-id="hf-9d97" class="muted">25 days left</span></span><span data-hf-id="hf-eg5h" class="expiry-val">May 14, 2027<span data-hf-id="hf-dipx" class="muted">218 days left</span></span><span data-hf-id="hf-rf2w" class="pill amber">SSL soon</span></div>
+    <div data-hf-id="hf-lt04" class="row"><span data-hf-id="hf-j57o" class="domain">fieldnotes.example<span data-hf-id="hf-r142" class="subdomain">HTTPS certificate trusted</span></span><span data-hf-id="hf-6752" class="expiry-val">Dec 11, 2026<span data-hf-id="hf-btto" class="muted">64 days left</span></span><span data-hf-id="hf-087w" class="expiry-val">Oct 14, 2026<span data-hf-id="hf-woew" class="muted">6 days left</span></span><span data-hf-id="hf-blbw" class="pill amber">Domain soon</span></div>
+    <div data-hf-id="hf-km31" class="row"><span data-hf-id="hf-2qxm" class="domain">brightpath.example<span data-hf-id="hf-rff3" class="subdomain">HTTPS certificate trusted</span></span><span data-hf-id="hf-pyhe" class="expiry-val">Jan 4, 2027<span data-hf-id="hf-erta" class="muted">88 days left</span></span><span data-hf-id="hf-7joi" class="expiry-val">Feb 8, 2027<span data-hf-id="hf-uip6" class="muted">123 days left</span></span><span data-hf-id="hf-1j6i" class="pill green">Healthy</span></div>
+    <div data-hf-id="hf-l0e2" class="row"><span data-hf-id="hf-68e9" class="domain">meadowwork.example<span data-hf-id="hf-rtq4" class="subdomain">HTTPS certificate trusted</span></span><span data-hf-id="hf-fddg" class="expiry-val">Oct 1, 2026<span data-hf-id="hf-opif" class="muted">Expired 7 days ago</span></span><span data-hf-id="hf-jrzm" class="expiry-val">Sep 10, 2027<span data-hf-id="hf-e2kh" class="muted">337 days left</span></span><span data-hf-id="hf-pyt1" class="pill red">Expired</span></div>
+    <div class="row"><span class="domain">orchard.example<span class="subdomain">HTTPS certificate trusted</span></span><span class="expiry-val">Feb 18, 2027<span class="muted">133 days left</span></span><span class="expiry-val">Aug 8, 2027<span class="muted">304 days left</span></span><span class="pill green">Healthy</span></div>
+    <div class="row"><span class="domain">copperline.example<span class="subdomain">HTTPS certificate trusted</span></span><span class="expiry-val">Mar 9, 2027<span class="muted">152 days left</span></span><span class="expiry-val">Dec 12, 2027<span class="muted">430 days left</span></span><span class="pill green">Healthy</span></div>
+    <div class="row"><span class="domain">juniper.example<span class="subdomain">HTTPS certificate trusted</span></span><span class="expiry-val">Apr 22, 2027<span class="muted">196 days left</span></span><span class="expiry-val">Jul 2, 2027<span class="muted">267 days left</span></span><span class="pill green">Healthy</span></div>
+    <div class="row"><span class="domain">goodweather.example<span class="subdomain">HTTPS certificate trusted</span></span><span class="expiry-val">May 30, 2027<span class="muted">234 days left</span></span><span class="expiry-val">Jan 16, 2027<span class="muted">100 days left</span></span><span class="pill green">Healthy</span></div>
+   </div>
+  </main>
+ </div>
+ <div data-hf-id="hf-5w8r" class="dashboard-caption"><b data-hf-id="hf-30cz">One clear view.</b> Certificate and registration renewals.</div>
+</section>
+<section data-hf-id="hf-thot" id="alerts-scene" class="clip" data-start="9" data-duration="6">
+ <div data-hf-id="hf-9e20" class="alerts-title"><p data-hf-id="hf-yxxa" class="eyebrow">PREFERENCES</p><h2 data-hf-id="hf-5ad0">Alert settings</h2><p data-hf-id="hf-ty2n">Choose when and where we’ll reach you.</p></div>
+ <div data-hf-id="hf-bloa" class="settings-panel">
+  <div data-hf-id="hf-hi7i" class="settings-head"><span data-hf-id="hf-3enz" class="icon">◷</span><div data-hf-id="hf-xfcu"><h3 data-hf-id="hf-1uz2">SSL certificate reminders</h3><p data-hf-id="hf-w55o">Choose lead times for certificate renewal.</p></div></div>
+  <div data-hf-id="hf-5e8n" class="lead-list"><span data-hf-id="hf-267a" class="lead">✓ &#160;30 days</span><span data-hf-id="hf-7n4g" class="lead">✓ &#160;14 days</span><span data-hf-id="hf-l9kw" class="lead">✓ &#160;7 days</span><span data-hf-id="hf-5n2w" class="lead">1 day</span></div>
+  <div data-hf-id="hf-h7gj" class="setting-line"><span data-hf-id="hf-diwx" class="icon">✉</span><div data-hf-id="hf-w8fr"><h4 data-hf-id="hf-q1e3">Email notifications</h4><p data-hf-id="hf-lflg">Reminders delivered to your inbox.</p></div><span data-hf-id="hf-xqo5" class="switch"></span></div>
+  <div data-hf-id="hf-5t37" class="setting-line"><span data-hf-id="hf-7hrj" class="icon">♧</span><div data-hf-id="hf-wmqs"><h4 data-hf-id="hf-nz9x">Push notifications</h4><p data-hf-id="hf-2q7c">Get notified on this device.</p></div><span data-hf-id="hf-imxl" class="switch"></span></div>
+  <div data-hf-id="hf-x6vc" class="when-configured">When configured · Browser push requires HTTPS (or localhost) and permission.</div>
+ </div>
+ <div data-hf-id="hf-0665" class="notification">
+  <div data-hf-id="hf-3hee" class="note-top"><span data-hf-id="hf-p3oa" class="brand-mark">✓</span><span data-hf-id="hf-vvkq">certwatch <small data-hf-id="hf-me7w">now</small></span><b data-hf-id="hf-zlwv" style="margin-left:auto;color:#9ba59e">•••</b></div>
+  <div data-hf-id="hf-hc69" class="note-body"><div data-hf-id="hf-b71i" class="note-tag">SSL CERTIFICATE REMINDER</div><h3 data-hf-id="hf-393x">7 days until SSL expiry</h3><p data-hf-id="hf-i2aa">The SSL certificate for <span data-hf-id="hf-uqu5" class="note-domain">northstar.example</span> is expiring soon. Renew it to keep your site secure.</p>
+   <div data-hf-id="hf-9bup" class="note-details"><div data-hf-id="hf-vftp"><small data-hf-id="hf-mcav">CERTIFICATE EXPIRES</small><b data-hf-id="hf-wsfj">November 2, 2026</b></div><div data-hf-id="hf-vu4q"><small data-hf-id="hf-r8ie">ISSUED BY</small><b data-hf-id="hf-zcdf">Let’s Encrypt</b></div></div>
+   <span data-hf-id="hf-ukg2" class="note-button">View certificate →</span>
+  </div>
+ </div>
+</section>
+<section data-hf-id="hf-c9e6" id="close-scene" class="clip" data-start="15" data-duration="5">
+ <div data-hf-id="hf-7h5o" class="close-wash"></div>
+ <div data-hf-id="hf-xtbn" class="close-lockup"><span data-hf-id="hf-opd9" class="brand-mark">✓</span><div data-hf-id="hf-c37o" class="wordmark">certwatch</div><div data-hf-id="hf-w1xc" class="close-line">Checks run daily.</div></div>
+ <div data-hf-id="hf-0zyi" class="close-foot">SSL monitoring · Certificate and registration expiry</div>
+</section>
+<audio data-hf-id="hf-8o7v" id="music" src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3" data-start="0" data-duration="20" data-track-index="10" data-volume="0.18" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[{&quot;target&quot;:&quot;volume&quot;,&quot;points&quot;:[{&quot;t&quot;:0,&quot;v&quot;:0},{&quot;t&quot;:1,&quot;v&quot;:0.18},{&quot;t&quot;:18.7,&quot;v&quot;:0.18},{&quot;t&quot;:20,&quot;v&quot;:0}]}]}"></audio>
+<audio data-hf-id="hf-nyny" id="sfx-ui" src="assets/sfx/interface/drop_001.ogg" data-start="8.64" data-duration="0.11" data-track-index="11" data-volume="0.36"></audio>
+<audio data-hf-id="hf-5xrs" id="sfx-brand" src="assets/sfx/interface/bong_001.ogg" data-start="17.37" data-duration="0.13" data-track-index="12" data-volume="0.28"></audio>
+</div>
+<script>
+const root=document.querySelector('[data-composition-id]');
+const id=root.dataset.compositionId;
+const tl=gsap.timeline({paused:true});
+// Settled, readable entries: two date slips, real dashboard, configured reminder, then brand lockup.
+tl.fromTo('.slip.one',{y:26,opacity:0},{y:0,opacity:1,duration:.55,ease:'power3.out'},.28);
+tl.fromTo('.slip.two',{y:26,opacity:0},{y:0,opacity:1,duration:.55,ease:'power3.out'},.68);
+tl.fromTo('.hook-title',{y:16,opacity:0},{y:0,opacity:1,duration:.45,ease:'power2.out'},1.32);
+tl.fromTo('.demo-shell',{y:26,opacity:0,scale:.985},{y:0,opacity:1,scale:1,duration:.65,ease:'power3.out'},3.18);
+tl.fromTo('.dashboard-caption',{y:10,opacity:0},{y:0,opacity:1,duration:.4,ease:'power2.out'},3.65);
+tl.fromTo('.row:not(.head)',{x:14,opacity:0},{x:0,opacity:1,duration:.38,stagger:.11,ease:'power2.out'},4.15);
+tl.fromTo('.alerts-title',{y:18,opacity:0},{y:0,opacity:1,duration:.55,ease:'power3.out'},9.18);
+tl.fromTo('.settings-panel',{x:-16,opacity:0},{x:0,opacity:1,duration:.55,ease:'power3.out'},9.38);
+tl.fromTo('.notification',{x:20,opacity:0},{x:0,opacity:1,duration:.55,ease:'power3.out'},9.62);
+tl.fromTo('.lead',{y:8,opacity:0},{y:0,opacity:1,duration:.32,stagger:.09,ease:'power2.out'},10.02);
+// beat-locked: the expiry-row focus lands on the 8.74s strong cue.
+tl.fromTo('.row:nth-child(5)',{backgroundColor:'#fff'},{backgroundColor:'#f5faf6',duration:.28,ease:'power1.out'},8.64);
+// beat-locked: the mark arrives just ahead of the 17.47s strong cue.
+tl.fromTo('.close-lockup .brand-mark',{scale:.88,opacity:0},{scale:1,opacity:1,duration:.55,ease:'power3.out'},17.37);
+tl.fromTo('.close-lockup .wordmark',{y:10,opacity:0},{y:0,opacity:1,duration:.48,ease:'power2.out'},17.78);
+tl.fromTo('.close-line,.close-foot',{opacity:0},{opacity:1,duration:.45,ease:'power2.out'},18.25);
+// Audio-reactive, brand-specific breathe. Values are pre-extracted and every callback is time-indexed.
+const cwAudio=window.CW_AUDIO_DATA;
+for(let f=0;f<cwAudio.totalFrames;f++){
+ const frame=cwAudio.frames[f];
+ tl.call(()=>{
+  const glow=6+frame.bands[0]*4;
+  const alpha=.10+frame.rms*.10;
+  document.querySelector('#close-scene .brand-mark').style.filter=`drop-shadow(0 8px ${glow.toFixed(1)}px rgba(51,132,97,${alpha.toFixed(3)}))`;
+ },[],f/cwAudio.fps);
+}
+window.__timelines[id]=tl;
+</script>
+</body>
+</html>

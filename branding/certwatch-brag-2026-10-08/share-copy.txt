@@ -1,0 +1,2 @@
+certwatch keeps SSL certificate and domain registration expiry dates in view, with daily checks and reminders by email or browser push.
+Music: “Happy Beats & Business Moves Vol. 12” by Sascha Ende — ende.app, CC BY 4.0.
