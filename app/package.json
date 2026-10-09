@@ -9,7 +9,7 @@
     "test": "node --disable-warning=ExperimentalWarning --test"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": "^22.13.0 || ^24.0.0"
   },
   "dependencies": {
     "web-push": "^3.6.7"

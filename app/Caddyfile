@@ -1,0 +1,7 @@
+# Caddy gets a certificate for this name from Let's Encrypt and renews it by
+# itself. Port 80 only answers the certificate check and redirects to HTTPS.
+{$DOMAIN} {
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy tracker:3000
+}

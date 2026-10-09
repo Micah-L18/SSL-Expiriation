@@ -1,0 +1,51 @@
+# The tracker behind Caddy, which gets and renews the HTTPS certificate.
+# Set DOMAIN and AUTH_PASSWORD_HASH in .env first; DEPLOY.md has every step.
+# Run from this folder: docker compose up -d --build
+services:
+  tracker:
+    build: .
+    image: ssl-tracker
+    restart: unless-stopped
+    # Settings come from .env, the same file `npm start` reads.
+    env_file:
+      - path: .env
+        required: false
+    # These describe the container, not your setup, so they win over .env.
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATA_DIR: /data
+      PUBLIC_URL: https://${DOMAIN:?Set DOMAIN in .env to the name the tracker is opened at, like tracker.example.com}
+      # Caddy is the only thing that can reach the app, so its word on who is
+      # calling can be taken.
+      TRUST_PROXY: 1
+    # No ports: the app is reachable only from Caddy, over the Compose network.
+    expose:
+      - "3000"
+    volumes:
+      - data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - tracker
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  # The database, push keys and daily snapshots. Survives rebuilds and
+  # `docker compose down`; only `docker compose down -v` deletes it.
+  data:
+  # The HTTPS certificate and its account key. Keep it: Let's Encrypt limits
+  # how often a certificate for the same name can be issued.
+  caddy_data:
+  caddy_config:
