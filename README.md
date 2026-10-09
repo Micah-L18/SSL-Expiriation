@@ -2,7 +2,7 @@
 
 A self-hosted tracker for SSL certificate expiry and domain registration expiry,
 built for Lachie. It checks each domain daily and sends an email and/or a push
-notification as an expiry gets close. Single user, no login.
+notification as an expiry gets close. Single user, one password.
 
 ## What's in here
 

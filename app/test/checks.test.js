@@ -25,6 +25,7 @@ test('parseCertificate reads expiry, issuer and subject', () => {
     issuer: { C: 'US', O: "Let's Encrypt", CN: 'R11' },
     valid_from: 'Sep  3 12:00:00 2026 GMT',
     valid_to: 'Nov  2 12:00:00 2026 GMT',
+    fingerprint256: 'AB:CD',
   });
   assert.deepEqual(result, {
     ok: true,
@@ -32,6 +33,7 @@ test('parseCertificate reads expiry, issuer and subject', () => {
     validFrom: '2026-09-03T12:00:00.000Z',
     issuer: "Let's Encrypt",
     subject: 'example.com',
+    fingerprint: 'AB:CD',
   });
 });
 

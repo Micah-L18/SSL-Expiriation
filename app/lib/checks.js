@@ -39,6 +39,7 @@ function parseCertificate(cert) {
     validFrom: Number.isNaN(from.getTime()) ? null : from.toISOString(),
     issuer: firstOf(issuer.O) || firstOf(issuer.CN) || null,
     subject: firstOf(subject.CN) || null,
+    fingerprint: cert.fingerprint256 || null,
   };
 }
 
