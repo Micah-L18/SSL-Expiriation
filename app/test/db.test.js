@@ -46,10 +46,40 @@ const version = (file) => {
   }
 };
 
-test('a new database is created at the current schema version', (t) => {
-  const file = path.join(tempDir(t), 'tracker.db');
+test('a new database is created at the current schema version, with nothing to back up', (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, 'tracker.db');
   openStore(file).close();
   assert.equal(version(file), SCHEMA_VERSION);
+  assert.equal(fs.existsSync(path.join(dir, 'backups')), false);
+});
+
+test('a snapshot is taken before an existing database is upgraded', (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, 'tracker.db');
+  createV0Database(file);
+  fs.writeFileSync(path.join(dir, 'vapid.json'), '{"publicKey":"pub","privateKey":"priv"}');
+  openStore(file, { now: () => new Date('2026-10-09T08:30:15.123Z') }).close();
+
+  const backups = path.join(dir, 'backups');
+  assert.deepEqual(fs.readdirSync(backups).sort(), ['tracker-2026-10-09T083015Z-schema-v0.db', 'vapid.json']);
+  assert.equal(fs.readFileSync(path.join(backups, 'vapid.json'), 'utf8'), '{"publicKey":"pub","privateKey":"priv"}');
+
+  // The snapshot is the database as it was: old version, old alerts table.
+  const snapshot = path.join(backups, 'tracker-2026-10-09T083015Z-schema-v0.db');
+  assert.equal(version(snapshot), 0);
+  const db = new DatabaseSync(snapshot);
+  t.after(() => db.close());
+  assert.deepEqual(db.prepare('SELECT threshold, channels FROM alerts ORDER BY id').all().map((r) => ({ ...r })), [
+    { threshold: 30, channels: 'email,push' },
+    { threshold: 14, channels: 'email' },
+    { threshold: 7, channels: '' },
+  ]);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM domains').get().n, 2);
+
+  // An up-to-date database is not snapshotted again on the next start.
+  openStore(file).close();
+  assert.equal(fs.readdirSync(backups).length, 2);
 });
 
 test('a database from the first release upgrades with its data intact', (t) => {

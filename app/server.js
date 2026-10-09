@@ -11,6 +11,7 @@ const { checkSsl, checkRegistration } = require('./lib/checks');
 const { createNotifier } = require('./lib/notify');
 const { createMonitor } = require('./lib/monitor');
 const { createApp } = require('./lib/api');
+const { createBackups } = require('./lib/backup');
 
 const env = process.env;
 const port = Number(env.PORT) || 3000;
@@ -21,9 +22,11 @@ const intervalMs = (Number(env.CHECK_INTERVAL_HOURS) || 24) * 3_600_000;
 fs.mkdirSync(dataDir, { recursive: true });
 const store = openStore(path.join(dataDir, 'tracker.db'));
 const notifier = createNotifier({ store, dataDir, env });
+const backups = createBackups({ store, dataDir });
 const monitor = createMonitor({
   store,
   notifier,
+  maintain: () => backups.nightly(),
   checkers: { ssl: checkSsl, registration: checkRegistration },
   publicUrl: env.PUBLIC_URL || '',
 });

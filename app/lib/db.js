@@ -1,6 +1,8 @@
 'use strict';
 
+const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const { takeSnapshot } = require('./backup');
 
 const DEFAULT_SETTINGS = {
   sslThresholds: [30, 14, 7, 1],
@@ -102,8 +104,17 @@ function schemaVersion(db) {
   return db.prepare('PRAGMA user_version').get().user_version;
 }
 
-function migrate(db) {
-  for (let version = schemaVersion(db); version < MIGRATIONS.length; version++) {
+// dataDir is where a snapshot goes before an existing database is changed;
+// null (an in-memory database) skips that.
+function migrate(db, dataDir, now) {
+  const from = schemaVersion(db);
+  if (from >= MIGRATIONS.length) return;
+  const existing = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'").get().n > 0;
+  if (existing && dataDir) {
+    const stamp = now().toISOString().replace(/\.\d+Z$/, 'Z').replace(/:/g, '');
+    takeSnapshot(db, dataDir, `${stamp}-schema-v${from}`);
+  }
+  for (let version = from; version < MIGRATIONS.length; version++) {
     db.exec('BEGIN');
     try {
       db.exec(MIGRATIONS[version]);
@@ -142,12 +153,13 @@ function toDelivery(row) {
   };
 }
 
-// file is a path, or ':memory:' for tests.
-function openStore(file) {
+// file is a path, or ':memory:' for tests. An existing database on an older
+// schema is snapshotted into <its folder>/backups and then upgraded.
+function openStore(file, { now = () => new Date() } = {}) {
   const db = new DatabaseSync(file);
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
-  migrate(db);
+  migrate(db, file === ':memory:' ? null : path.dirname(file), now);
   const iso = () => new Date().toISOString();
 
   function toAlert(row) {
@@ -167,6 +179,7 @@ function openStore(file) {
 
   return {
     close: () => db.close(),
+    snapshot: (dataDir, name) => takeSnapshot(db, dataDir, name),
 
     listDomains: () => db.prepare('SELECT * FROM domains ORDER BY host').all().map(toDomain),
     getDomain: (id) => toDomain(db.prepare('SELECT * FROM domains WHERE id = ?').get(id)),
@@ -200,6 +213,14 @@ function openStore(file) {
         .get(domainId, kind, afterId);
       return { afterId, count, since };
     },
+    // Deletes checks made before the given time, except the latest good check
+    // of each domain and kind: that one holds the dates still being shown.
+    pruneChecks: (before) =>
+      db
+        .prepare(
+          'DELETE FROM checks WHERE checked_at < ? AND id NOT IN (SELECT MAX(id) FROM checks WHERE ok = 1 GROUP BY domain_id, kind)'
+        )
+        .run(before).changes,
     history: (domainId, limit = 50) =>
       db.prepare('SELECT * FROM checks WHERE domain_id = ? ORDER BY id DESC LIMIT ?').all(domainId, limit).map(toCheck),
 

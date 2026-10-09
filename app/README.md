@@ -19,8 +19,8 @@ npm start
 
 Open http://127.0.0.1:3000.
 
-Data lives in `app/data/` (`tracker.db` and `vapid.json`). Back that folder up;
-deleting `vapid.json` invalidates every push subscription.
+Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
+[Backups and restore](#backups-and-restore).
 
 ### Configuration (`.env`)
 
@@ -52,6 +52,47 @@ tracker.example.com {
 There is no login, so anyone who can reach the address can see and change your
 domains. Keep it on a private network or VPN (Tailscale works well), or add
 authentication at the proxy (`basic_auth` in Caddy).
+
+### Backups and restore
+
+Once a day the app writes a snapshot of the database to
+`data/backups/tracker-YYYY-MM-DD.db` (dates are UTC) and keeps the newest
+seven. `vapid.json`, the push keys, is copied to `data/backups/vapid.json`
+each time. A snapshot is a complete, ordinary SQLite file.
+
+The backups sit on the same disk as the data, so they protect against a bad
+upgrade or a damaged database, not a dead disk. Copy `data/backups/` somewhere
+else now and then. Do not copy `data/tracker.db` itself while the app is
+running: recent changes live in the `tracker.db-wal` file beside it and a plain
+copy can come out broken.
+
+To restore:
+
+1. Stop the app.
+2. Move the damaged files out of the way:
+   `mkdir data/broken && mv data/tracker.db* data/broken/`
+3. Copy the snapshot you want into place:
+   `cp data/backups/tracker-2026-10-09.db data/tracker.db`
+4. If `data/vapid.json` is missing or was replaced, restore it too:
+   `cp data/backups/vapid.json data/vapid.json`. Without the original
+   `vapid.json` every device has to turn push notifications on again.
+5. Start the app. Domains, check history, settings, alert history and push
+   subscriptions are back as of the snapshot. Checks that are due run within
+   the hour, and alerts already sent before the snapshot are not sent again.
+
+On a new machine: install the app, create `data/`, and do steps 3 to 5.
+
+### Upgrading
+
+The database carries a schema version. When a new version of the app starts
+on an older database it first writes a snapshot named
+`data/backups/tracker-<timestamp>-schema-v<N>.db` (the database exactly as the
+old version left it), then upgrades it. To go back, check out the previous
+version of the app and restore that snapshot as above; an older app cannot
+read a database that a newer one has upgraded.
+
+Check history older than 400 days is deleted daily. The latest successful
+check of each domain is always kept, however old.
 
 ### Start on boot
 

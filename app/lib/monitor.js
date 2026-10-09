@@ -29,7 +29,8 @@ const CONFIRM_DAYS = 3;
 
 // checkers: { ssl(host), registration(host) }, each resolving to
 // { ok, expiresAt?, error?, ...detail }.
-function createMonitor({ store, checkers, notifier, now = () => new Date(), publicUrl = '', log = console }) {
+// maintain, when given, is housekeeping (backups, pruning) run at the end of every tick.
+function createMonitor({ store, checkers, notifier, maintain, now = () => new Date(), publicUrl = '', log = console }) {
   const running = new Map();
   let timer = null;
 
@@ -180,10 +181,12 @@ function createMonitor({ store, checkers, notifier, now = () => new Date(), publ
     return checkMany(jobs.filter(([, kinds]) => kinds.length));
   }
 
-  // One scheduler pass: follows up on alerts already sent, then checks
-  // whatever is due. Each step is independent, so one failing does not stop the rest.
+  // One scheduler pass: follows up on alerts already sent, checks whatever
+  // is due, then does the housekeeping. Each step is independent, so one
+  // failing does not stop the rest.
   async function tick(intervalMs = DAY_MS) {
     const steps = { 'Email status check': confirmEmails, 'Alert retry': retryDeliveries, 'Scheduled check': () => checkDue(intervalMs) };
+    if (maintain) steps.Housekeeping = maintain;
     for (const [name, step] of Object.entries(steps)) {
       try {
         await step();
