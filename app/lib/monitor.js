@@ -9,7 +9,7 @@ const {
   buildUntrustedMessage,
   DAY_MS,
 } = require('./alerts');
-const { deliveredChannels } = require('./notify');
+const { deliveryOutcome, CHANNELS } = require('./notify');
 
 const HOUR_MS = 3_600_000;
 const CONCURRENCY = 4;
@@ -19,6 +19,13 @@ const KINDS = ['ssl', 'registration'];
 const QUICK_RETRIES = 3;
 // How long a check must keep failing before it is worth an alert.
 const FAILING_AFTER_DAYS = 3;
+// Sends tried per channel for one alert, the first one included.
+const MAX_ATTEMPTS = 5;
+// An alert that reached nobody because no channel was set up is still worth
+// sending for this long, should a channel appear.
+const UNREACHED_DAYS = 7;
+// How long to keep asking the email provider whether an email arrived.
+const CONFIRM_DAYS = 3;
 
 // checkers: { ssl(host), registration(host) }, each resolving to
 // { ok, expiresAt?, error?, ...detail }.
@@ -28,20 +35,54 @@ function createMonitor({ store, checkers, notifier, now = () => new Date(), publ
 
   const guarded = (promise) => promise.catch((err) => ({ ok: false, error: `Check failed: ${err.message}` }));
 
-  // alert is { type, key, threshold?, expiresAt? }; type and key are what make
-  // it unique for this domain and kind.
-  async function sendAlert(domain, kind, alert, message, settings) {
-    const id = store.claimAlert({ domainId: domain.id, kind, ...alert, message, at: now().toISOString() });
-    if (!id) return;
-    let channels = [];
+  const sending = new Set();
+
+  // Sends an alert on the given channels and records what happened to each.
+  async function deliver(alertId, message, channels) {
+    if (sending.has(alertId)) return;
+    sending.add(alertId);
     try {
-      channels = deliveredChannels(await notifier.send(message, settings));
-    } catch (err) {
-      log.error(`Alert for ${domain.host} failed: ${err.message}`);
+      let results = {};
+      let thrown = null;
+      try {
+        results = await notifier.send(message, store.getSettings(), channels);
+      } catch (err) {
+        thrown = err.message;
+        log.error(`Alert "${message.title}" failed: ${thrown}`);
+      }
+      for (const channel of channels) {
+        const outcome = results[channel] ? deliveryOutcome(channel, results[channel]) : { status: 'failed', error: thrown };
+        store.recordDelivery(alertId, channel, outcome, now().toISOString());
+      }
+    } finally {
+      sending.delete(alertId);
     }
-    // Nothing got through, so give the claim back and let the next check retry.
-    if (channels.length) store.confirmAlert(id, channels);
-    else store.releaseAlert(id);
+  }
+
+  // alert is { type, key, threshold?, expiresAt? }; type and key are what make
+  // it unique for this domain and kind. Once claimed an alert is never sent
+  // again as a whole; only the channels that did not get through are retried.
+  async function sendAlert(domain, kind, alert, message) {
+    const id = store.claimAlert({ domainId: domain.id, kind, ...alert, message, at: now().toISOString() });
+    if (id) await deliver(id, message, CHANNELS);
+  }
+
+  async function retryDeliveries() {
+    const owed = store.owedDeliveries({
+      maxAttempts: MAX_ATTEMPTS,
+      skippedSince: new Date(now() - UNREACHED_DAYS * DAY_MS).toISOString(),
+    });
+    const byAlert = Map.groupBy(owed, (d) => d.alertId);
+    for (const [alertId, rows] of byAlert) await deliver(alertId, rows[0].message, rows.map((r) => r.channel));
+  }
+
+  // "Sent" only means the provider accepted the email; ask what became of it.
+  async function confirmEmails() {
+    for (const { alertId, messageId } of store.unconfirmedEmails(new Date(now() - CONFIRM_DAYS * DAY_MS).toISOString())) {
+      const { status, error } = await notifier.emailDelivery(messageId);
+      if (status === 'sent' || status === 'unknown') continue; // no news yet; ask again next tick
+      store.recordDelivery(alertId, 'email', { status, error, attempted: false }, now().toISOString());
+    }
   }
 
   // before is the failure streak as it stood ahead of this check.
@@ -49,7 +90,7 @@ function createMonitor({ store, checkers, notifier, now = () => new Date(), publ
     const settings = store.getSettings();
     const thresholds = kind === 'ssl' ? settings.sslThresholds : settings.registrationThresholds;
     if (!thresholds.length) return; // alerts for this kind are turned off
-    const send = (alert, message) => sendAlert(domain, kind, alert, message, settings);
+    const send = (alert, message) => sendAlert(domain, kind, alert, message);
     const about = { host: domain.host, kind, now: now(), url: publicUrl };
 
     if (!result.ok) {
@@ -134,10 +175,22 @@ function createMonitor({ store, checkers, notifier, now = () => new Date(), publ
     });
   }
 
-  // One scheduler pass: checks whatever is due.
-  function tick(intervalMs = DAY_MS) {
+  function checkDue(intervalMs) {
     const jobs = store.listDomains().map((domain) => [domain, dueKinds(domain, intervalMs)]);
     return checkMany(jobs.filter(([, kinds]) => kinds.length));
+  }
+
+  // One scheduler pass: follows up on alerts already sent, then checks
+  // whatever is due. Each step is independent, so one failing does not stop the rest.
+  async function tick(intervalMs = DAY_MS) {
+    const steps = { 'Email status check': confirmEmails, 'Alert retry': retryDeliveries, 'Scheduled check': () => checkDue(intervalMs) };
+    for (const [name, step] of Object.entries(steps)) {
+      try {
+        await step();
+      } catch (err) {
+        log.error(`${name} failed: ${err.message}`);
+      }
+    }
   }
 
   return {
@@ -146,9 +199,8 @@ function createMonitor({ store, checkers, notifier, now = () => new Date(), publ
     tick,
     // Ticks every hour, so a restart or a sleeping machine never skips a day.
     start({ intervalMs = DAY_MS } = {}) {
-      const safeTick = () => tick(intervalMs).catch((err) => log.error(`Scheduled check failed: ${err.message}`));
-      safeTick();
-      timer = setInterval(safeTick, Math.min(HOUR_MS, intervalMs));
+      tick(intervalMs);
+      timer = setInterval(() => tick(intervalMs), Math.min(HOUR_MS, intervalMs));
     },
     stop: () => clearInterval(timer),
   };

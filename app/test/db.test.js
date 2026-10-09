@@ -28,7 +28,8 @@ function createV0Database(file) {
       (1, 'registration', '2026-10-01T00:00:00.000Z', 0, NULL, '{}', 'Registration lookup failed (HTTP 503)');
     INSERT INTO alerts (domain_id, kind, threshold, expires_at, sent_at, channels) VALUES
       (1, 'ssl', 30, '2026-10-20T00:00:00.000Z', '2026-09-20T00:00:00.000Z', 'email,push'),
-      (1, 'ssl', 14, '2026-10-20T00:00:00.000Z', '2026-10-06T00:00:00.000Z', 'email');
+      (1, 'ssl', 14, '2026-10-20T00:00:00.000Z', '2026-10-06T00:00:00.000Z', 'email'),
+      (1, 'registration', 7, '2026-10-12T00:00:00.000Z', '2026-10-06T00:00:00.000Z', '');
     INSERT INTO settings (key, value) VALUES ('sslThresholds', '[30,14,3]'), ('emailTo', '"lachie@example.com"');
     INSERT INTO push_subscriptions (endpoint, subscription, created_at) VALUES
       ('https://push.example/a', '{"endpoint":"https://push.example/a","keys":{"p256dh":"p","auth":"a"}}', '2026-09-01T00:00:00.000Z');
@@ -77,6 +78,14 @@ test('a database from the first release upgrades with its data intact', (t) => {
       ['expiry', 30, ['email', 'push']],
     ]
   );
+  assert.deepEqual(store.listAlerts(1)[1].deliveries, {
+    email: { status: 'sent', attempts: 1, error: null, messageId: null, updatedAt: '2026-09-20T00:00:00.000Z' },
+    push: { status: 'sent', attempts: 1, error: null, messageId: null, updatedAt: '2026-09-20T00:00:00.000Z' },
+  });
+  assert.deepEqual(Object.keys(store.listAlerts(1)[0].deliveries), ['email']);
+  assert.deepEqual(store.owedDeliveries({ maxAttempts: 5, skippedSince: '' }), [], 'nothing old is re-sent');
+  // The registration row was a claim that never reached anyone; it is dropped so the alert can go out.
+  assert.deepEqual(store.sentThresholds(1, 'registration', '2026-10-12T00:00:00.000Z'), []);
   const repeat = { domainId: 1, kind: 'ssl', type: 'expiry', key: '2026-10-20T00:00:00.000Z:14', message: {} };
   assert.equal(store.claimAlert(repeat), null);
   store.close();

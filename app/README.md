@@ -102,8 +102,16 @@ on any OS, or a launchd agent on macOS.
 - **Untrusted certificates**: a certificate browsers would reject (self-signed,
   wrong hostname, broken chain) sends one alert per certificate.
 - Removing every threshold for SSL or for registration turns off all alerts of
-  that kind. If an alert reaches no one (email not configured, no devices
-  subscribed) it is retried at the next check.
+  that kind.
+- **Delivery**: every alert is sent once, and what happened is recorded per
+  channel (email, push). A channel that fails is tried again on the following
+  hourly looks, five attempts in all, without repeating the channel that
+  worked. For email, "sent" only means Resend accepted it, so the app asks
+  Resend afterwards whether it was delivered or bounced (for up to three days)
+  and records the answer. This needs a Resend API key with full access; a
+  "sending access" key can send but not read the status back, so emails stay
+  at `sent`. An alert that reached no one because nothing was set up (no API
+  key, no devices subscribed) is sent if a channel appears within a week.
 
 ## API
 
@@ -123,7 +131,7 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
 | GET | `/api/push/vapid-public-key` | | `{ publicKey }` |
 | POST | `/api/push/subscribe` | `PushSubscription.toJSON()` | `201 { ok: true }` |
 | POST | `/api/push/unsubscribe` | `{ endpoint }` | `{ ok: true, removed }` |
-| POST | `/api/alerts/test` | | `{ email: { sent, skipped?, error? }, push: { sent, failed, skipped? } }` |
+| POST | `/api/alerts/test` | | `{ email: { sent, id?, skipped?, error? }, push: { sent, failed, skipped?, error? } }` |
 | GET | `/api/health` | | `{ ok: true }` |
 
 ```jsonc
@@ -170,8 +178,25 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
   "threshold": 14,                // expiry and reminder only; 0 is the "has expired" alert
   "expiresAt": "...",             // null for failing and recovered
   "sentAt": "...",
-  "channels": ["email", "push"]
+  "channels": ["email", "push"],  // the channels that got through
+  "deliveries": { "email": Delivery, "push": Delivery }
 }
+
+// Delivery: what happened to one alert on one channel
+{
+  "status": "delivered",          // see below
+  "attempts": 1,                  // sends tried, 5 at most
+  "error": null,                  // why it failed, bounced or was skipped
+  "messageId": "49a3...",         // Resend's id for the email; null for push
+  "updatedAt": "..."
+}
+// status: pending   being sent
+//         sent      accepted by Resend / at least one device was reached
+//         delivered Resend confirmed delivery (email only)
+//         bounced   the address rejected it (email only; not retried)
+//         complained marked as spam by the recipient (email only)
+//         failed    not sent; retried hourly until attempts reaches 5
+//         skipped   the channel was off or not set up
 
 // Settings
 {
@@ -182,8 +207,15 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
     "emailTo": "lachie@example.com",           // "" falls back to ALERT_EMAIL_TO
     "pushEnabled": true
   },
-  "email": { "configured": true, "from": "SSL Tracker <alerts@example.com>" },  // configured: RESEND_API_KEY is set
-  "push": { "subscriptions": 1 }
+  "email": {
+    "configured": true,                        // RESEND_API_KEY is set
+    "from": "SSL Tracker <alerts@example.com>",
+    "last": Delivery                           // the most recent email attempt; null before the first
+  },
+  "push": { "subscriptions": 1, "last": Delivery },
+  "deliveryProblems": [                        // failed, bounced or complained in the last 30 days, newest first (max 20)
+    { "domainId": 1, "host": "example.com", "kind": "ssl", "type": "expiry", "title": "...", "channel": "email", ...Delivery }
+  ]
 }
 ```
 

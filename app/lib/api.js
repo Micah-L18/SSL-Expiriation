@@ -3,10 +3,12 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { daysLeft, normalizeThresholds } = require('./alerts');
+const { daysLeft, normalizeThresholds, DAY_MS } = require('./alerts');
 const { normalizeHost } = require('./checks');
 
 const MAX_BODY = 100_000;
+// How long a failed or bounced delivery stays listed in the settings response.
+const PROBLEM_DAYS = 30;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -103,8 +105,9 @@ function createApp({ store, monitor, notifier, publicDir, now = () => new Date()
     const email = notifier.emailStatus(settings);
     return {
       settings: { ...settings, emailTo: email.to },
-      email: { configured: email.configured, from: email.from },
-      push: { subscriptions: store.countSubscriptions() },
+      email: { configured: email.configured, from: email.from, last: store.lastDelivery('email') },
+      push: { subscriptions: store.countSubscriptions(), last: store.lastDelivery('push') },
+      deliveryProblems: store.deliveryProblems(new Date(now() - PROBLEM_DAYS * DAY_MS).toISOString()),
     };
   }
 

@@ -27,6 +27,7 @@ function setup(t) {
   const store = openStore(':memory:');
   t.after(() => store.close());
   const notifier = {
+    emailDelivery: async () => ({ status: 'sent' }),
     async send(message) {
       sent.push(message);
       return { email: { sent: true }, push: { sent: 0, failed: 0, skipped: 'No devices are subscribed' } };
