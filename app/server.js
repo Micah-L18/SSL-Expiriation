@@ -10,7 +10,7 @@ const { openStore } = require('./lib/db');
 const { checkSsl, checkRegistration } = require('./lib/checks');
 const { createNotifier } = require('./lib/notify');
 const { createMonitor } = require('./lib/monitor');
-const { createApp } = require('./lib/api');
+const { createApp, LOOPBACK } = require('./lib/api');
 const { createBackups } = require('./lib/backup');
 const { exitOnFatal } = require('./lib/fatal');
 
@@ -34,10 +34,29 @@ const monitor = createMonitor({
   publicUrl: env.PUBLIC_URL || '',
   heartbeatUrl: env.HEARTBEAT_URL || '',
 });
-const server = createApp({ store, monitor, notifier, backups, publicDir: path.join(__dirname, 'public') });
+// Listening on one specific address makes that address a way in; listening
+// on all of them (0.0.0.0, ::) names none.
+const bound = ['0.0.0.0', '::'].includes(host) ? [] : [host.includes(':') ? `[${host}]` : host];
+const allowedHosts = [...bound, ...(env.ALLOWED_HOSTS || '').split(',').map((h) => h.trim()).filter(Boolean)];
+const server = createApp({
+  store,
+  monitor,
+  notifier,
+  backups,
+  allowedHosts,
+  publicUrl: env.PUBLIC_URL || '',
+  publicDir: path.join(__dirname, 'public'),
+});
 
 server.listen(port, host, () => {
   console.log(`SSL Tracker running at http://${host}:${port}`);
+  if (!LOOPBACK.includes(bound[0] || host)) {
+    console.warn(
+      `WARNING: listening on ${host}, not just this machine. There is no login: anyone who can reach port ${port} ` +
+        'can see and change everything. Keep it behind a private network (Tailscale), a firewall, or a Docker port ' +
+        'published on 127.0.0.1 only.'
+    );
+  }
   if (!env.RESEND_API_KEY) console.log('Email alerts are off: RESEND_API_KEY is not set.');
   if (!env.HEARTBEAT_URL) console.log('Heartbeat is off: HEARTBEAT_URL is not set, so nothing will tell you if the tracker stops.');
   monitor.start({ intervalMs });

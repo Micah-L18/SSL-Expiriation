@@ -26,12 +26,13 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | Address to listen on. `0.0.0.0` exposes it to your network. |
+| `HOST` | `127.0.0.1` | Address to listen on. `0.0.0.0` exposes it to your network; the app logs a warning at startup when this is not a loopback address. |
 | `PORT` | `3000` | Port to listen on. |
 | `RESEND_API_KEY` | none | API key from [Resend](https://resend.com). Email alerts are off without it. |
 | `ALERT_EMAIL_TO` | none | Where alerts go. Can be overridden in the app's alert settings. |
 | `ALERT_EMAIL_FROM` | `SSL Tracker <onboarding@resend.dev>` | Sender. Use an address on a domain verified in Resend; the default only delivers to your own Resend login email. |
-| `PUBLIC_URL` | none | The address you open the app at; used as the link in alerts. |
+| `PUBLIC_URL` | none | The address you open the app at; used as the link in alerts, and allowed as a `Host` and `Origin`. |
+| `ALLOWED_HOSTS` | none | Extra hostnames or IPs the app may be opened at, comma separated. See [Which addresses the app answers to](#which-addresses-the-app-answers-to). |
 | `VAPID_SUBJECT` | `mailto:ALERT_EMAIL_TO` | Contact address given to browser push services. |
 | `DATA_DIR` | `data` | Where the database and push keys are stored. |
 | `CHECK_INTERVAL_HOURS` | `24` | How often each domain is re-checked. |
@@ -53,6 +54,29 @@ tracker.example.com {
 There is no login, so anyone who can reach the address can see and change your
 domains. Keep it on a private network or VPN (Tailscale works well), or add
 authentication at the proxy (`basic_auth` in Caddy).
+
+### Which addresses the app answers to
+
+There is no login, so the app refuses the requests that would let another
+website reach it through your browser.
+
+- **Host allowlist.** A request is answered only when its `Host` header names
+  this machine (`localhost`, `127.0.0.1`, `[::1]`), the host of `PUBLIC_URL`,
+  the address in `HOST` when that is a specific one, or an entry in
+  `ALLOWED_HOSTS`. Anything else gets `403`. If you open the app at an address
+  and get "This address is not allowed to reach the tracker", add that address
+  to `PUBLIC_URL` or `ALLOWED_HOSTS` and restart. The port does not matter.
+- **Origin check.** A request that changes something (`POST`, `PUT`,
+  `DELETE`) and carries an `Origin` header gets `403` unless that origin is the
+  app itself or `PUBLIC_URL`. Scripts and `curl` send no `Origin` and are not
+  affected.
+- **Headers.** Every response carries a `Content-Security-Policy` (scripts
+  from the app only, fonts from Google Fonts, `frame-ancestors 'none'`),
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
+  `X-Content-Type-Options: nosniff`.
+
+None of this is a substitute for keeping the app off the public internet:
+anyone who can reach it directly can still use it.
 
 ### Knowing the tracker is alive
 
@@ -196,7 +220,9 @@ on any OS, or a launchd agent on macOS.
 ## API
 
 All bodies are JSON (`Content-Type: application/json`). Errors are
-`{ "error": "message" }` with a 4xx/5xx status.
+`{ "error": "message" }` with a 4xx/5xx status. `403` means the `Host` or
+`Origin` was refused; see
+[Which addresses the app answers to](#which-addresses-the-app-answers-to).
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |

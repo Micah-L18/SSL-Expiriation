@@ -27,6 +27,49 @@ const MIME = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
 };
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
+const READ_ONLY = ['GET', 'HEAD', 'OPTIONS'];
+// The stylesheet loads its fonts from Google Fonts, and the domain list sets a
+// style attribute on each row; nothing else may come from outside or inline.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' https://fonts.googleapis.com",
+  "style-src-attr 'unsafe-inline'",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+const SECURITY_HEADERS = {
+  'content-security-policy': CONTENT_SECURITY_POLICY,
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+};
+
+// The hostname of a Host header or of an entry in a host list ("example.com",
+// "example.com:3000", "[::1]:3000"), or null when it is not one.
+function hostnameOf(value) {
+  if (typeof value !== 'string' || !/^[^\s\/@?#\\]+$/.test(value)) return null;
+  try {
+    return new URL(`http://${value}`).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+function originOf(value) {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
 // Worst first: a domain's overall status is the worst of its two checks.
 // "unsupported" (a registry with no expiry lookup) is permanent, so it is left
 // out unless there is nothing else to go on.
@@ -64,8 +107,31 @@ async function readJson(req) {
   throw new HttpError(400, 'Request body must be a JSON object');
 }
 
-function createApp({ store, monitor, notifier, backups, publicDir, now = () => new Date() }) {
+// allowedHosts: hostnames the app may be opened at besides loopback and the
+// host of publicUrl.
+function createApp({ store, monitor, notifier, backups, publicDir, publicUrl = '', allowedHosts = [], now = () => new Date() }) {
   const startedAt = now();
+  const publicOrigin = originOf(publicUrl);
+  const hosts = new Set([...LOOPBACK, publicOrigin && publicOrigin.hostname, ...allowedHosts.map(hostnameOf)].filter(Boolean));
+
+  // There is no login, so the browser's own rules are the only thing between
+  // another website and this app. Both checks here close a way around them.
+  function guard(req) {
+    // DNS rebinding: a page on evil.example re-points its own name at this
+    // machine and is then, to the browser, same-origin with the app. The Host
+    // header still says evil.example.
+    if (!hosts.has(hostnameOf(req.headers.host))) {
+      throw new HttpError(403, 'This address is not allowed to reach the tracker. Set PUBLIC_URL or ALLOWED_HOSTS to the address you open it at.');
+    }
+    // Cross-site requests: any page can post a form here, and the routes that
+    // take no body have no JSON content type to refuse. Browsers always say
+    // where such a request came from.
+    const { origin } = req.headers;
+    if (READ_ONLY.includes(req.method) || origin === undefined) return;
+    const from = originOf(origin);
+    const same = from && (from.host === req.headers.host.toLowerCase() || (publicOrigin && from.origin === publicOrigin.origin));
+    if (!same) throw new HttpError(403, 'Requests from other websites are not allowed');
+  }
 
   // Unhealthy means the scheduler has stopped ticking. A tick that completed
   // with errors still counts as alive; lastTick says what went wrong.
@@ -287,14 +353,15 @@ function createApp({ store, monitor, notifier, backups, publicDir, now = () => n
       'content-length': stat.size,
       // Always revalidate, so a new frontend or service worker is picked up straight away.
       'cache-control': 'no-cache',
-      'x-content-type-options': 'nosniff',
     });
     if (req.method === 'HEAD') res.end();
     else fs.createReadStream(file).pipe(res);
   }
 
   return http.createServer(async (req, res) => {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
     try {
+      guard(req);
       let pathname;
       try {
         pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -312,4 +379,4 @@ function createApp({ store, monitor, notifier, backups, publicDir, now = () => n
   });
 }
 
-module.exports = { createApp };
+module.exports = { createApp, LOOPBACK };
