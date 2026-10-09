@@ -35,6 +35,7 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 | `VAPID_SUBJECT` | `mailto:ALERT_EMAIL_TO` | Contact address given to browser push services. |
 | `DATA_DIR` | `data` | Where the database and push keys are stored. |
 | `CHECK_INTERVAL_HOURS` | `24` | How often each domain is re-checked. |
+| `HEARTBEAT_URL` | none | Fetched after every completed scheduler run. See [Knowing the tracker is alive](#knowing-the-tracker-is-alive). |
 
 ### HTTPS (needed for push notifications)
 
@@ -52,6 +53,44 @@ tracker.example.com {
 There is no login, so anyone who can reach the address can see and change your
 domains. Keep it on a private network or VPN (Tailscale works well), or add
 authentication at the proxy (`basic_auth` in Caddy).
+
+### Knowing the tracker is alive
+
+A tracker that has stopped cannot tell you so. Two things cover that.
+
+**Heartbeat.** Set `HEARTBEAT_URL` and the app sends one GET request to it
+after every completed scheduler run, which is once an hour. Create a check at
+an outside service such as [healthchecks.io](https://healthchecks.io) (the
+free tier is enough) with a period of 1 hour and a grace time of 2 hours, and
+paste its ping URL in. When the pings stop (machine off, app crashed, network
+down) that service emails you. Without `HEARTBEAT_URL` no request is made.
+
+The ping means "the scheduler is running", not "every check passed": a run
+that finished with errors still pings. Failing checks have their own alerts.
+
+**Health.** `GET /api/health` answers `200` while the scheduler is running and
+`503` once 3 hours pass without a completed run (counted from startup until
+the first run finishes):
+
+```json
+{
+  "ok": true,
+  "startedAt": "2026-10-09T08:00:00.000Z",
+  "lastTick": { "at": "2026-10-09T09:00:03.120Z", "ok": true, "errors": [] },
+  "domains": 12,
+  "lastBackupAt": "2026-10-09T08:00:04.000Z",
+  "heartbeat": { "enabled": true, "lastAt": "2026-10-09T09:00:03.120Z", "lastError": null }
+}
+```
+
+`lastTick` is `null` until the first run finishes; `lastTick.ok` is `false`
+when a step of that run failed, with the reasons in `errors`. `lastBackupAt`
+is `null` before the first snapshot. `heartbeat.lastError` says why the last
+ping did not get through.
+
+An error nothing handled stops the process with exit code 1 rather than leave
+it half-alive, so run it under something that restarts it: Docker, or systemd
+with `Restart=on-failure` (see [Start on boot](#start-on-boot)).
 
 ### Backups and restore
 
@@ -161,6 +200,7 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
+| GET | `/api/health` | | `Health`, with `503` when the scheduler has stopped. See [Knowing the tracker is alive](#knowing-the-tracker-is-alive). |
 | GET | `/api/domains` | | `{ domains: Domain[] }` |
 | POST | `/api/domains` | `{ host }` | `201 { domain }` after the first check finishes (can take up to ~20s). `400` invalid, `409 { error, domain }` already tracked. |
 | GET | `/api/domains/:id` | | `{ domain, history: Check[], alerts: Alert[] }` (latest 50 of each, newest first) |
@@ -173,7 +213,6 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
 | POST | `/api/push/subscribe` | `PushSubscription.toJSON()` | `201 { ok: true }` |
 | POST | `/api/push/unsubscribe` | `{ endpoint }` | `{ ok: true, removed }` |
 | POST | `/api/alerts/test` | | `{ email: { sent, id?, skipped?, error? }, push: { sent, failed, skipped?, error? } }` |
-| GET | `/api/health` | | `{ ok: true }` |
 
 ```jsonc
 // Domain

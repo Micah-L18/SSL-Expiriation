@@ -48,6 +48,14 @@ function takeSnapshot(db, dataDir, name, keep = KEEP) {
 function createBackups({ store, dataDir, now = () => new Date() }) {
   return {
     list: () => listSnapshots(dataDir),
+    // When the newest snapshot was written, or null when there is none.
+    lastAt() {
+      const newest = listSnapshots(dataDir)
+        .map((file) => fs.statSync(file).mtime)
+        .sort((a, b) => a - b)
+        .at(-1);
+      return newest ? newest.toISOString() : null;
+    },
     // Does the day's housekeeping the first time it is called each (UTC) day:
     // takes a snapshot, then drops check history too old to matter. Returns
     // the snapshot's path, or null when today's is already there.

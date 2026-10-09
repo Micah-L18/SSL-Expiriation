@@ -26,13 +26,28 @@ const MAX_ATTEMPTS = 5;
 const UNREACHED_DAYS = 7;
 // How long to keep asking the email provider whether an email arrived.
 const CONFIRM_DAYS = 3;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 // checkers: { ssl(host), registration(host) }, each resolving to
 // { ok, expiresAt?, error?, ...detail }.
 // maintain, when given, is housekeeping (backups, pruning) run at the end of every tick.
-function createMonitor({ store, checkers, notifier, maintain, now = () => new Date(), publicUrl = '', log = console }) {
+// heartbeatUrl, when given, is fetched after every completed tick, so that an
+// outside service can raise the alarm when the ticks stop.
+function createMonitor({
+  store,
+  checkers,
+  notifier,
+  maintain,
+  heartbeatUrl = '',
+  fetch = globalThis.fetch,
+  now = () => new Date(),
+  publicUrl = '',
+  log = console,
+}) {
   const running = new Map();
   let timer = null;
+  let lastTick = null;
+  const heartbeat = { enabled: Boolean(heartbeatUrl), lastAt: null, lastError: null };
 
   const guarded = (promise) => promise.catch((err) => ({ ok: false, error: `Check failed: ${err.message}` }));
 
@@ -185,21 +200,39 @@ function createMonitor({ store, checkers, notifier, maintain, now = () => new Da
   // is due, then does the housekeeping. Each step is independent, so one
   // failing does not stop the rest.
   async function tick(intervalMs = DAY_MS) {
+    const errors = [];
     const steps = { 'Email status check': confirmEmails, 'Alert retry': retryDeliveries, 'Scheduled check': () => checkDue(intervalMs) };
     if (maintain) steps.Housekeeping = maintain;
     for (const [name, step] of Object.entries(steps)) {
       try {
         await step();
       } catch (err) {
-        log.error(`${name} failed: ${err.message}`);
+        errors.push(`${name} failed: ${err.message}`);
+        log.error(errors.at(-1));
       }
     }
+    lastTick = { at: now().toISOString(), ok: !errors.length, errors };
+    await beat();
+  }
+
+  async function beat() {
+    if (!heartbeatUrl) return;
+    heartbeat.lastAt = now().toISOString();
+    try {
+      const res = await fetch(heartbeatUrl, { signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS) });
+      heartbeat.lastError = res.ok ? null : `HTTP ${res.status}`;
+    } catch (err) {
+      heartbeat.lastError = err.message;
+    }
+    if (heartbeat.lastError) log.error(`Heartbeat failed: ${heartbeat.lastError}`);
   }
 
   return {
     checkDomain,
     checkAll: () => checkMany(store.listDomains().map((domain) => [domain, KINDS])),
     tick,
+    // lastTick is null until the first tick has completed.
+    status: () => ({ lastTick, heartbeat: { ...heartbeat } }),
     // Ticks every hour, so a restart or a sleeping machine never skips a day.
     start({ intervalMs = DAY_MS } = {}) {
       tick(intervalMs);

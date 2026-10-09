@@ -12,6 +12,9 @@ const { createNotifier } = require('./lib/notify');
 const { createMonitor } = require('./lib/monitor');
 const { createApp } = require('./lib/api');
 const { createBackups } = require('./lib/backup');
+const { exitOnFatal } = require('./lib/fatal');
+
+exitOnFatal();
 
 const env = process.env;
 const port = Number(env.PORT) || 3000;
@@ -29,12 +32,14 @@ const monitor = createMonitor({
   maintain: () => backups.nightly(),
   checkers: { ssl: checkSsl, registration: checkRegistration },
   publicUrl: env.PUBLIC_URL || '',
+  heartbeatUrl: env.HEARTBEAT_URL || '',
 });
-const server = createApp({ store, monitor, notifier, publicDir: path.join(__dirname, 'public') });
+const server = createApp({ store, monitor, notifier, backups, publicDir: path.join(__dirname, 'public') });
 
 server.listen(port, host, () => {
   console.log(`SSL Tracker running at http://${host}:${port}`);
   if (!env.RESEND_API_KEY) console.log('Email alerts are off: RESEND_API_KEY is not set.');
+  if (!env.HEARTBEAT_URL) console.log('Heartbeat is off: HEARTBEAT_URL is not set, so nothing will tell you if the tracker stops.');
   monitor.start({ intervalMs });
 });
 

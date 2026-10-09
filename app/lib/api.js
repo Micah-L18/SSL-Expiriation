@@ -9,6 +9,8 @@ const { normalizeHost } = require('./checks');
 const MAX_BODY = 100_000;
 // How long a failed or bounced delivery stays listed in the settings response.
 const PROBLEM_DAYS = 30;
+// The scheduler ticks hourly; this long without a completed tick means it has stopped.
+const STALLED_MS = 3 * 3_600_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -62,7 +64,25 @@ async function readJson(req) {
   throw new HttpError(400, 'Request body must be a JSON object');
 }
 
-function createApp({ store, monitor, notifier, publicDir, now = () => new Date() }) {
+function createApp({ store, monitor, notifier, backups, publicDir, now = () => new Date() }) {
+  const startedAt = now();
+
+  // Unhealthy means the scheduler has stopped ticking. A tick that completed
+  // with errors still counts as alive; lastTick says what went wrong.
+  function health() {
+    const { lastTick, heartbeat } = monitor.status();
+    const ok = now() - (lastTick ? new Date(lastTick.at) : startedAt) < STALLED_MS;
+    const body = {
+      ok,
+      startedAt: startedAt.toISOString(),
+      lastTick,
+      domains: store.listDomains().length,
+      lastBackupAt: backups ? backups.lastAt() : null,
+      heartbeat,
+    };
+    return [ok ? 200 : 503, body];
+  }
+
   function describeCheck(domain, kind, soonDays) {
     const latest = store.latestCheck(domain.id, kind);
     if (!latest) return null;
@@ -138,7 +158,7 @@ function createApp({ store, monitor, notifier, publicDir, now = () => new Date()
   }
 
   const routes = [
-    ['GET', /^\/api\/health$/, () => [200, { ok: true }]],
+    ['GET', /^\/api\/health$/, health],
 
     ['GET', /^\/api\/domains$/, () => [200, { domains: store.listDomains().map(describeDomain) }]],
     [
