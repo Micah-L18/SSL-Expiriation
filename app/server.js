@@ -1,0 +1,47 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const envFile = path.join(__dirname, '.env');
+if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+
+const { openStore } = require('./lib/db');
+const { checkSsl, checkRegistration } = require('./lib/checks');
+const { createNotifier } = require('./lib/notify');
+const { createMonitor } = require('./lib/monitor');
+const { createApp } = require('./lib/api');
+
+const env = process.env;
+const port = Number(env.PORT) || 3000;
+const host = env.HOST || '127.0.0.1';
+const dataDir = path.resolve(__dirname, env.DATA_DIR || 'data');
+const intervalMs = (Number(env.CHECK_INTERVAL_HOURS) || 24) * 3_600_000;
+
+fs.mkdirSync(dataDir, { recursive: true });
+const store = openStore(path.join(dataDir, 'tracker.db'));
+const notifier = createNotifier({ store, dataDir, env });
+const monitor = createMonitor({
+  store,
+  notifier,
+  checkers: { ssl: checkSsl, registration: checkRegistration },
+  publicUrl: env.PUBLIC_URL || '',
+});
+const server = createApp({ store, monitor, notifier, publicDir: path.join(__dirname, 'public') });
+
+server.listen(port, host, () => {
+  console.log(`SSL Tracker running at http://${host}:${port}`);
+  if (!env.RESEND_API_KEY) console.log('Email alerts are off: RESEND_API_KEY is not set.');
+  monitor.start({ intervalMs });
+});
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    monitor.stop();
+    server.close(() => {
+      store.close();
+      process.exit(0);
+    });
+    server.closeAllConnections();
+  });
+}

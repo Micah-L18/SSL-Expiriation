@@ -1,0 +1,17 @@
+{
+  "name": "ssl-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted tracker for SSL certificate and domain registration expiry, with email and push alerts.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
