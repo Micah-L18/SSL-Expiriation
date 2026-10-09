@@ -5,6 +5,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { daysLeft, normalizeThresholds, DAY_MS } = require('./alerts');
 const { normalizeHost } = require('./checks');
+const { createAuth } = require('./auth');
 
 const MAX_BODY = 100_000;
 // How long a failed or bounced delivery stays listed in the settings response.
@@ -29,6 +30,8 @@ const MIME = {
 };
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
 const READ_ONLY = ['GET', 'HEAD', 'OPTIONS'];
+// The only API routes that answer without a session.
+const NO_SESSION_NEEDED = ['/api/login', '/api/session', '/api/health'];
 // The stylesheet loads its fonts from Google Fonts, and the domain list sets a
 // style attribute on each row; nothing else may come from outside or inline.
 const CONTENT_SECURITY_POLICY = [
@@ -83,8 +86,8 @@ class HttpError extends Error {
   }
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+function sendJson(res, status, body, headers = {}) {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -108,14 +111,27 @@ async function readJson(req) {
 }
 
 // allowedHosts: hostnames the app may be opened at besides loopback and the
-// host of publicUrl.
-function createApp({ store, monitor, notifier, backups, publicDir, publicUrl = '', allowedHosts = [], now = () => new Date() }) {
+// host of publicUrl. passwordHash: empty turns the login off. trustProxy: a
+// reverse proxy in front supplies the client address.
+function createApp({
+  store,
+  monitor,
+  notifier,
+  backups,
+  publicDir,
+  publicUrl = '',
+  allowedHosts = [],
+  passwordHash = '',
+  trustProxy = false,
+  now = () => new Date(),
+}) {
   const startedAt = now();
   const publicOrigin = originOf(publicUrl);
+  const auth = createAuth({ store, passwordHash, trustProxy, now, secure: Boolean(publicOrigin && publicOrigin.protocol === 'https:') });
   const hosts = new Set([...LOOPBACK, publicOrigin && publicOrigin.hostname, ...allowedHosts.map(hostnameOf)].filter(Boolean));
 
-  // There is no login, so the browser's own rules are the only thing between
-  // another website and this app. Both checks here close a way around them.
+  // These two checks stop another website from reaching the app through the
+  // browser of someone who is signed in (or, with the login off, of anyone).
   function guard(req) {
     // DNS rebinding: a page on evil.example re-points its own name at this
     // machine and is then, to the browser, same-origin with the app. The Host
@@ -134,10 +150,12 @@ function createApp({ store, monitor, notifier, backups, publicDir, publicUrl = '
   }
 
   // Unhealthy means the scheduler has stopped ticking. A tick that completed
-  // with errors still counts as alive; lastTick says what went wrong.
-  function health() {
+  // with errors still counts as alive; lastTick says what went wrong. Without
+  // a session the answer is up or down and nothing more.
+  function health(req) {
     const { lastTick, heartbeat } = monitor.status();
     const ok = now() - (lastTick ? new Date(lastTick.at) : startedAt) < STALLED_MS;
+    if (!auth.signedIn(req)) return [ok ? 200 : 503, { ok }];
     const body = {
       ok,
       startedAt: startedAt.toISOString(),
@@ -225,6 +243,25 @@ function createApp({ store, monitor, notifier, backups, publicDir, publicUrl = '
 
   const routes = [
     ['GET', /^\/api\/health$/, health],
+
+    ['GET', /^\/api\/session$/, (req) => [200, { authenticated: auth.signedIn(req), loginRequired: auth.enabled }]],
+    [
+      'POST',
+      /^\/api\/login$/,
+      async (req) => {
+        if (!auth.enabled) throw new HttpError(400, 'No password is set on this server, so there is nothing to sign in to');
+        const { password } = await readJson(req);
+        if (typeof password !== 'string' || !password) throw new HttpError(400, 'Enter the password');
+        const { cookie, retryAfter } = await auth.login(req, password);
+        if (retryAfter) {
+          return [429, { error: 'Too many attempts. Wait a while and try again.', retryAfter }, { 'retry-after': String(retryAfter) }];
+        }
+        // One message for every way a login can fail.
+        if (!cookie) throw new HttpError(401, 'Incorrect password');
+        return [200, { authenticated: true }, { 'set-cookie': cookie }];
+      },
+    ],
+    ['POST', /^\/api\/logout$/, (req) => [204, undefined, auth.enabled ? { 'set-cookie': auth.logout(req) } : {}]],
 
     ['GET', /^\/api\/domains$/, () => [200, { domains: store.listDomains().map(describeDomain) }]],
     [
@@ -330,13 +367,17 @@ function createApp({ store, monitor, notifier, backups, publicDir, publicUrl = '
   ];
 
   async function handleApi(req, res, pathname) {
+    // Asked first, so that without a session nothing shows which routes exist.
+    if (!NO_SESSION_NEEDED.includes(pathname) && !auth.signedIn(req)) throw new HttpError(401, 'Sign in to continue');
     const matches = routes.filter(([, pattern]) => pattern.test(pathname));
     if (!matches.length) throw new HttpError(404, 'Not found');
-    const route = matches.find(([method]) => method === req.method);
+    // Uptime monitors often ask with HEAD; Node leaves the body off the reply.
+    const method = req.method === 'HEAD' ? 'GET' : req.method;
+    const route = matches.find((m) => m[0] === method);
     if (!route) throw new HttpError(405, 'Method not allowed');
-    const [status, body] = await route[2](req, ...pathname.match(route[1]).slice(1));
-    if (body === undefined) res.writeHead(status).end();
-    else sendJson(res, status, body);
+    const [status, body, headers] = await route[2](req, ...pathname.match(route[1]).slice(1));
+    if (body === undefined) res.writeHead(status, headers).end();
+    else sendJson(res, status, body, headers);
   }
 
   function serveStatic(req, res, pathname) {

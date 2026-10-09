@@ -202,8 +202,24 @@ async function boot(t, env) {
   });
 }
 
-test('startup warns when HOST is not loopback, and only then', async (t) => {
-  assert.match(await boot(t, { HOST: '0.0.0.0' }), /WARNING: listening on 0\.0\.0\.0.*There is no login/s);
-  assert.doesNotMatch(await boot(t, { HOST: '127.0.0.1' }), /WARNING/);
-  assert.doesNotMatch(await boot(t, {}), /WARNING/);
+// A cheap but valid hash; the password behind it is never used here.
+const SOME_HASH = `scrypt:1024:8:1:${'ab'.repeat(16)}:${'cd'.repeat(32)}`;
+
+test('startup is refused when HOST is not loopback and no password is set', async (t) => {
+  for (const HOST of ['0.0.0.0', '::']) {
+    await assert.rejects(boot(t, { HOST }), /exited with 1: Not starting: HOST=\S+ lets other machines reach the tracker, and no password is set/);
+  }
+  assert.match(await boot(t, { HOST: '0.0.0.0', AUTH_PASSWORD_HASH: SOME_HASH }), /SSL Tracker running/);
+});
+
+test('startup is refused when the password hash is not a usable one', async (t) => {
+  for (const AUTH_PASSWORD_HASH of ['hunter2', 'scrypt:1000:8:1:abcd:ef', `${SOME_HASH}zz`]) {
+    await assert.rejects(boot(t, { AUTH_PASSWORD_HASH }), /exited with 1: Not starting: AUTH_PASSWORD_HASH is not a valid hash/);
+  }
+});
+
+test('on loopback the app starts without a password and says the login is off', async (t) => {
+  assert.match(await boot(t, {}), /Login is off/);
+  assert.match(await boot(t, { HOST: '127.0.0.1' }), /Login is off/);
+  assert.doesNotMatch(await boot(t, { AUTH_PASSWORD_HASH: SOME_HASH }), /Login is off/);
 });

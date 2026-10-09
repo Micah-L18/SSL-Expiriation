@@ -4,7 +4,7 @@ A private, self-hosted tracker for SSL certificate expiry and domain registratio
 expiry. It checks every domain daily and sends an email and/or a push
 notification as each expiry gets close.
 
-Single user, no login. Run it on your own machine or server.
+Single user, one password. Run it on your own machine or server.
 
 ## Setup
 
@@ -19,17 +19,22 @@ Needs Docker with Compose 2.24 or newer.
 ```sh
 cd app
 cp .env.example .env          # then fill in the email settings
-docker compose up -d --build
+docker compose build
+docker compose run --rm --no-deps tracker node scripts/hash-password.js
+# paste the AUTH_PASSWORD_HASH line it prints into .env, then:
+docker compose up -d
 ```
+
+The password is required under Docker: the container listens on every
+interface, and the app will not start that way without one. See
+[Login](#login).
 
 Open http://127.0.0.1:3000. The port is published on this machine only; to
 open the app from a phone see [HTTPS with Tailscale](#https-with-tailscale).
 
 - `docker compose ps` shows `healthy` while the scheduler is running (it asks
   `/api/health` every minute).
-- `docker compose logs -f` shows the log. A warning that the app is listening
-  on `0.0.0.0` is expected here: that is inside the container, and Compose only
-  publishes the port on `127.0.0.1`.
+- `docker compose logs -f` shows the log.
 - `HOST`, `PORT` and `DATA_DIR` in `.env` are ignored under Docker; the
   Compose file sets them. To use another port, change the left-hand number in
   `ports:` in `compose.yml`.
@@ -75,7 +80,9 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | Address to listen on. `0.0.0.0` exposes it to your network; the app logs a warning at startup when this is not a loopback address. |
+| `HOST` | `127.0.0.1` | Address to listen on. Anything but a loopback address needs `AUTH_PASSWORD_HASH`; the app refuses to start without it. |
+| `AUTH_PASSWORD_HASH` | none | The login password, hashed. See [Login](#login). Without it the login is off. |
+| `TRUST_PROXY` | off | Set to `1` only when a reverse proxy sits in front, so failed logins are counted per visitor and not all against the proxy. |
 | `PORT` | `3000` | Port to listen on. |
 | `RESEND_API_KEY` | none | API key from [Resend](https://resend.com). Email alerts are off without it. |
 | `ALERT_EMAIL_TO` | none | Where alerts go. Can be overridden in the app's alert settings. |
@@ -90,9 +97,8 @@ Data lives in `app/data/` (`tracker.db` and `vapid.json`). See
 ### HTTPS with Tailscale
 
 Browsers only allow push notifications and app install on HTTPS (or on
-`localhost`), and the app has no login. [Tailscale](https://tailscale.com)
-solves both: only your own devices can reach the app, and it gets a real
-certificate that renews itself. It is free for personal use.
+`localhost`). [Tailscale](https://tailscale.com) gives the app a real
+certificate that renews itself, and only your own devices can reach it. It is free for personal use.
 
 1. Install Tailscale on the machine running the tracker and on your phone, and
    sign both in to the same account.
@@ -135,14 +141,45 @@ tracker.example.com {
 }
 ```
 
-There is no login, so anyone who can reach the address can see and change your
-domains. Keep it on a private network, or add authentication at the proxy
-(`basic_auth` in Caddy).
+Set `AUTH_PASSWORD_HASH` (see [Login](#login)) and `TRUST_PROXY=1`. With
+`HOST=127.0.0.1` the app starts without a password, and the proxy would then
+hand the open app to everyone who can reach it.
+
+### Login
+
+One password protects everything. It is never stored: `.env` holds a scrypt
+hash of it.
+
+```sh
+node scripts/hash-password.js      # asks twice, shows nothing as you type
+```
+
+Copy the `AUTH_PASSWORD_HASH=...` line it prints into `.env` and restart. Use
+a long password (the script refuses fewer than 12 characters); a few random
+words from a password manager is ideal. To change the password, do the same
+again: every device is signed out and has to sign in with the new one. A
+forgotten password is fixed the same way, by whoever can edit `.env`.
+
+- **No password set.** The login is off and the app says so at startup. That
+  is only allowed while `HOST` is a loopback address; with any other `HOST` the
+  app refuses to start.
+- **Sessions.** Signing in sets a cookie that lasts 30 days, then the password
+  is asked for again. The cookie is `HttpOnly` and `SameSite=Strict`, and
+  `Secure` when `PUBLIC_URL` starts with `https://`. The database keeps only a
+  hash of each session token, so a backup cannot be used to sign in.
+- **Wrong passwords.** An address gets five tries. After the fifth it has to
+  wait 30 seconds, and the wait doubles with every further try up to 15
+  minutes. During a wait even the right password is refused. A successful
+  sign-in, or an hour without tries, clears the count. IPv6 addresses are
+  counted by their /64 network.
+- **What works without signing in.** The page itself (HTML, CSS, scripts),
+  `/api/session`, `/api/login`, and `/api/health`, which then says only whether
+  the tracker is up. Everything else answers `401`.
 
 ### Which addresses the app answers to
 
-There is no login, so the app refuses the requests that would let another
-website reach it through your browser.
+The app refuses the requests that would let another website reach it through
+the browser of someone who is signed in.
 
 - **Host allowlist.** A request is answered only when its `Host` header names
   this machine (`localhost`, `127.0.0.1`, `[::1]`), the host of `PUBLIC_URL`,
@@ -159,8 +196,7 @@ website reach it through your browser.
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
   `X-Content-Type-Options: nosniff`.
 
-None of this is a substitute for keeping the app off the public internet:
-anyone who can reach it directly can still use it.
+These checks stand beside the login, not in place of it.
 
 ### Knowing the tracker is alive
 
@@ -178,7 +214,9 @@ that finished with errors still pings. Failing checks have their own alerts.
 
 **Health.** `GET /api/health` answers `200` while the scheduler is running and
 `503` once 3 hours pass without a completed run (counted from startup until
-the first run finishes):
+the first run finishes). Without a session it says only that much,
+`{ "ok": true }` or `{ "ok": false }`, which is all an uptime monitor needs.
+Signed in, it gives the detail:
 
 ```json
 {
@@ -316,9 +354,25 @@ All bodies are JSON (`Content-Type: application/json`). Errors are
 `Origin` was refused; see
 [Which addresses the app answers to](#which-addresses-the-app-answers-to).
 
+Every route needs the session cookie except `/api/session`, `/api/login` and
+`/api/health`. Without one the answer is `401 { "error": "Sign in to continue" }`,
+whatever the path or method. A page that gets a `401` should show the login
+screen. See [Login](#login) for the rules behind this.
+
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| GET | `/api/health` | | `Health`, with `503` when the scheduler has stopped. See [Knowing the tracker is alive](#knowing-the-tracker-is-alive). |
+| GET | `/api/session` | | `{ authenticated, loginRequired }`. Always `200`. `loginRequired` is `false` when no password is set; `authenticated` is then always `true`. |
+| POST | `/api/login` | `{ password }` | `200 { authenticated: true }` and the session cookie. `401 { error: "Incorrect password" }`. `429 { error, retryAfter }` (seconds, also in the `Retry-After` header) while this address has to wait. `400` when `password` is missing or no password is set on the server. |
+| POST | `/api/logout` | | `204`, ends this session and clears the cookie. `401` when not signed in. |
+
+The cookie is `tracker_session` (`__Host-tracker_session` over HTTPS):
+`Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`, plus `Secure` when
+`PUBLIC_URL` is `https://`. Scripts cannot read it; the browser sends it by
+itself on same-origin requests.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| GET, HEAD | `/api/health` | | `{ ok }` without a session, `Health` with one; `503` when the scheduler has stopped. See [Knowing the tracker is alive](#knowing-the-tracker-is-alive). |
 | GET | `/api/domains` | | `{ domains: Domain[] }` |
 | POST | `/api/domains` | `{ host }` | `201 { domain }` after the first check finishes (can take up to ~20s). `400` invalid, `409 { error, domain }` already tracked. |
 | GET | `/api/domains/:id` | | `{ domain, history: Check[], alerts: Alert[] }` (latest 50 of each, newest first) |

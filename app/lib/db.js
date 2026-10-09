@@ -94,6 +94,16 @@ const MIGRATIONS = [
   DELETE FROM alerts WHERE channels = '';
   ALTER TABLE alerts DROP COLUMN channels;
   `,
+  // 4: login sessions. Only a hash of each session token is kept, so a copy
+  // of the database (a backup, say) cannot be used to sign in.
+  `
+  CREATE TABLE sessions (
+    token_hash TEXT PRIMARY KEY,
+    credential TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  `,
 ];
 
 const CHANNELS = ['email', 'push'];
@@ -318,6 +328,15 @@ function openStore(file, { now = () => new Date() } = {}) {
       );
       for (const [key, value] of Object.entries(patch)) upsert.run(key, JSON.stringify(value));
     },
+
+    // credential names the password a session was opened with; a session from
+    // before a password change no longer counts.
+    addSession: (tokenHash, credential, createdAt, expiresAt) =>
+      db.prepare('INSERT INTO sessions (token_hash, credential, created_at, expires_at) VALUES (?, ?, ?, ?)').run(tokenHash, credential, createdAt, expiresAt),
+    hasSession: (tokenHash, credential, at) =>
+      Boolean(db.prepare('SELECT 1 FROM sessions WHERE token_hash = ? AND credential = ? AND expires_at > ?').get(tokenHash, credential, at)),
+    deleteSession: (tokenHash) => db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash).changes > 0,
+    deleteExpiredSessions: (at) => db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(at).changes,
 
     listSubscriptions: () =>
       db.prepare('SELECT subscription FROM push_subscriptions').all().map((r) => JSON.parse(r.subscription)),

@@ -10,6 +10,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY server.js ./
 COPY lib ./lib
+COPY scripts ./scripts
 COPY public ./public
 
 # Inside the container the app has to listen on every interface for the
